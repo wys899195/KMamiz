@@ -90,6 +90,7 @@ export default class CombinedRealtimeDataList {
         );
 
         return {
+          latencyMean: r.reduce((sum, rl) => sum + (rl.latency.mean || 0), 0) / r.length,
           latencyCV: Math.max(...r.map((rl) => rl.latency.cv || 0)),
           method: method as TRequestTypeUpper,
           requestErrors,
@@ -133,6 +134,7 @@ export default class CombinedRealtimeDataList {
           requests,
           requestErrors,
           serverErrors,
+          latencyMean: r.reduce((sum, rl) => sum + (rl.latency.mean || 0), 0) / r.length,
           latencyCV: Math.max(...r.map((rl) => rl.latency.cv || 0)),
           uniqueServiceName,
           risk: risks.find(
