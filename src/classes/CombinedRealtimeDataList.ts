@@ -89,7 +89,7 @@ export default class CombinedRealtimeDataList {
           { requests: 0, requestErrors: 0, serverErrors: 0 }
         );
         const validLatencies = r.filter(rl => rl.latency.mean !== undefined && rl.latency.mean !== null);
-        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
+        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length || 0;
 
         return {
           latencyMean: meanLatency / 1000,//divide by 1000 to change the unit to milliseconds
@@ -127,7 +127,7 @@ export default class CombinedRealtimeDataList {
           { requests: 0, requestErrors: 0, serverErrors: 0 }
         );
         const validLatencies = r.filter(rl => rl.latency.mean !== undefined && rl.latency.mean !== null);
-        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
+        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length || 0;
 
         return {
           date: new Date(time),
