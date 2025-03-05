@@ -11,6 +11,7 @@ import {
 import { TServiceEndpointCohesion } from "../entities/TServiceEndpointCohesion";
 import DataCache from "../services/DataCache";
 import RiskAnalyzer from "../utils/RiskAnalyzer";
+// import Logger from "../utils/Logger";
 import { CLabelMapping } from "./Cacheable/CLabelMapping";
 
 export class EndpointDependencies {
@@ -549,13 +550,19 @@ export class EndpointDependencies {
         },
         { dependingBy: 0, dependingOn: 0 }
       );
+      // Logger.info(`dependingOn = ${dependingOn}`)
+      // Logger.info(`dependingOn = ${dependingBy}`)
+      // Logger.info(`dependingOn + dependingBy = ${dependingOn + dependingBy}`)
+      // Logger.info(`(dependingOn + dependingBy === 0) = ${(dependingOn + dependingBy === 0)}`)
+      const instability: number = (dependingOn + dependingBy === 0) ? 0 : dependingOn / (dependingOn + dependingBy);
+      // Logger.info(`instability = ${instability}`)
 
       return {
         uniqueServiceName: s.uniqueServiceName,
         name: `${s.service}.${s.namespace} (${s.version})`,
-        dependingBy,
-        dependingOn,
-        instability: dependingOn / (dependingOn + dependingBy),
+        dependingBy:dependingBy,
+        dependingOn:dependingOn,
+        instability: instability,
       };
     });
   }
