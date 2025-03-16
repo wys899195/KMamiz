@@ -248,19 +248,12 @@ export default class GraphService extends IRequestHandler {
   }
 
   async getTaggedDependencyGraph(tag?: string) {
-    if (tag) {
-      const existing = DataCache.getInstance()
-        .get<CTaggedDiffData>("TaggedDiffDatas")
-        .getData(tag);
-      if (existing.length > 0) {
-        const graph = existing[0].graphData;
-        return graph;
-      }
-    }
-    else if (tag == ""){ // get latest version dependency graph
-      return this.getDependencyGraph()
-    }
-    return undefined //no getting any graph
+    const diffData = DataCache.getInstance()
+      .get<CTaggedDiffData>("TaggedDiffDatas")
+      .getDataByTag(tag);
+    
+    return diffData?.graphData || this.getDependencyGraph();
+
   }
 
   async getTaggedServiceDependencyGraph(tag?: string) {
@@ -290,18 +283,10 @@ export default class GraphService extends IRequestHandler {
     return graph;
   }
 
-  getTagsOfDiffData():string[] {
-    const tagSet = new Set<string>();
+  getTagsOfDiffData():{ tag: string; time: number }[] {
     return DataCache.getInstance()
     .get<CTaggedDiffData>("TaggedDiffDatas")
-    .getData()
-    .sort((a, b) => (b.time || 0) - (a.time || 0)) //descending
-    .map((t) => t.tag)
-    .filter((tag) => { 
-      if (tagSet.has(tag)) return false; // duplicate tags will not be added
-      tagSet.add(tag);
-      return true;
-    });
+    .getTagsWithTime();
   }
 
   addTaggedDiffData(tagged: TTaggedDiffData) {
@@ -527,46 +512,29 @@ export default class GraphService extends IRequestHandler {
       .toServiceCoupling()
       .sort((a, b) => a.name.localeCompare(b.name));
   }
+  
   getTaggedServiceCohesion(tag?: string, namespace?: string) {
-    if (tag){
-      const existing = DataCache.getInstance()
-        .get<CTaggedDiffData>("TaggedDiffDatas")
-        .getData(tag);
-      if (existing.length > 0) {
-        const data = existing[0].cohesionData;
-        return data;
-      }
-    }
-    // default get latest version data
-    return this.getServiceCohesion(namespace);
+    const diffData = DataCache.getInstance()
+      .get<CTaggedDiffData>("TaggedDiffDatas")
+      .getDataByTag(tag);
+
+    return diffData?.cohesionData || this.getServiceCohesion(namespace);
   }
 
   getTaggedServiceInstability(tag?: string, namespace?: string) {
-    if (tag){
-      const existing = DataCache.getInstance()
-        .get<CTaggedDiffData>("TaggedDiffDatas")
-        .getData(tag);
-      if (existing.length > 0) {
-        const data = existing[0].instabilityData;
-        return data;
-      }
-    }
-    // default get latest version data
-    return this.getServiceInstability(namespace);
+    const diffData = DataCache.getInstance()
+      .get<CTaggedDiffData>("TaggedDiffDatas")
+      .getDataByTag(tag);
+
+    return diffData?.instabilityData || this.getServiceInstability(namespace);
   }
 
   getTaggedServiceCoupling(tag?: string, namespace?: string) {
-    if (tag){
-      const existing = DataCache.getInstance()
-        .get<CTaggedDiffData>("TaggedDiffDatas")
-        .getData(tag);
-      if (existing.length > 0) {
-        const data = existing[0].couplingData;
-        return data;
-      }
-    }
-    // default get latest version data
-    return this.getServiceCoupling(namespace);
+    const diffData = DataCache.getInstance()
+    .get<CTaggedDiffData>("TaggedDiffDatas")
+    .getDataByTag(tag);
+
+    return diffData?.couplingData || this.getServiceCoupling(namespace);
   }
 
 

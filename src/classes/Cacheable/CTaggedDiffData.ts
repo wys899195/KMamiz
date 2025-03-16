@@ -35,28 +35,48 @@ export class CTaggedDiffData extends Cacheable<TTaggedDiffData[]> {
     });
   }
 
-  getData(tag?: string): TTaggedDiffData[] {
+  getData(): TTaggedDiffData[] {
     const data = super.getData();
     if (!data) return [];
-    if (!tag) return data;
-    return data.filter((d) => d.tag === tag);
+    return data.filter(item => item.time);
+  }
+
+  getDataByTag(tag?: string): TTaggedDiffData | null {
+    if (tag) {
+      const existing = this.getData().filter((d) => d.tag === tag);
+      if (existing.length > 0) {
+        return existing[0]
+      }
+    }
+    return null;
+  }
+
+  getTagsWithTime(): { tag: string; time: number }[] {
+    const data = this.getData();
+    if (!data) return [];
+
+    const tagsSortedByTime = data
+      .sort((a, b) => (b.time!) - (a.time!)) //descending
+      .map((t) => ({ tag: t.tag, time: t.time! })); 
+
+    return Array.from(
+      new Set(tagsSortedByTime)
+    );
   }
 
   add(taggedData: TTaggedDiffData) {
-    const existing = this.getData(taggedData.tag);
-    if (existing.length > 0) {
-      return;
-    } else {
+    const existing = this.getDataByTag(taggedData.tag);
+    if (!existing) {
       taggedData.time = Date.now();
-      const data = this.getData();
-      this.setData(data.concat(taggedData));
+      this.setData(
+        this.getData().concat(taggedData)
+      );
     }
   }
 
   delete(tag: string) {
-    const data = this.getData();
     this.setData(
-      data.filter((d) => d.tag !== tag)
+      this.getData().filter((d) => d.tag !== tag)
     );
   }
 }
