@@ -130,17 +130,22 @@ export class EndpointDependencies {
         name: "external requests",
         dependencies: [],
         linkInBetween: [],
+        lastTimestamp:0,
       },
     ];
     const links: TLink[] = [];
     [...serviceEndpointMap.entries()].forEach(([service, endpoint]) => {
       // service node
+      const maxLastTimestampOfEndpoints = Math.max(
+        ...endpoint.map((e) => e.endpoint.lastTimestamp || 0)
+      );
       nodes.push({
         id: service,
         group: service,
         name: service.replace("\t", "."),
         dependencies: [],
         linkInBetween: [],
+        lastTimestamp:maxLastTimestampOfEndpoints,
       });
 
       endpoint.forEach((e) => {
@@ -153,6 +158,7 @@ export class EndpointDependencies {
             name: `(${e.endpoint.version}) ${e.endpoint.method} ${e.endpoint.labelName}`,
             dependencies: [],
             linkInBetween: [],
+            lastTimestamp:e.endpoint.lastTimestamp,
           });
           existLabels.add(id);
         }
@@ -444,6 +450,10 @@ export class EndpointDependencies {
     endpointDependencies._dependencies.forEach((d) => {
       const existing = dependencyMap.get(d.endpoint.uniqueEndpointName);
       if (existing) {
+        existing.endpoint.endpoint.lastTimestamp = Math.max(
+          existing.endpoint.endpoint.lastTimestamp || 0,
+          d.endpoint.lastTimestamp || 0
+        );
         d.dependingBy.forEach((dep) => {
           const id = `${dep.endpoint.uniqueEndpointName}\t${dep.distance}`;
           if (!existing.dependingBySet.has(id)) {
@@ -469,6 +479,8 @@ export class EndpointDependencies {
       [...dependencyMap.values()].map(({ endpoint }) => endpoint)
     );
   }
+
+
   private createDependencyMapObject(endpoint: TEndpointDependency): {
     endpoint: TEndpointDependency;
     dependingBySet: Set<string>;

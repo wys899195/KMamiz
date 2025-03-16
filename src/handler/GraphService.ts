@@ -290,16 +290,18 @@ export default class GraphService extends IRequestHandler {
     return graph;
   }
 
-  getTagsOfDiffData() {
-    return Array.from(
-        new Set(
-          DataCache.getInstance()
-            .get<CTaggedDiffData>("TaggedDiffDatas")
-            .getData()
-            .sort((a, b) => b.time! - a.time!)
-            .map((t) => t.tag)
-        )
-      );
+  getTagsOfDiffData():string[] {
+    const tagSet = new Set<string>();
+    return DataCache.getInstance()
+    .get<CTaggedDiffData>("TaggedDiffDatas")
+    .getData()
+    .sort((a, b) => (b.time || 0) - (a.time || 0)) //descending
+    .map((t) => t.tag)
+    .filter((tag) => { 
+      if (tagSet.has(tag)) return false; // duplicate tags will not be added
+      tagSet.add(tag);
+      return true;
+    });
   }
 
   addTaggedDiffData(tagged: TTaggedDiffData) {

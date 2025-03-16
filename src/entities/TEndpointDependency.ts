@@ -32,6 +32,7 @@ export type TEndpointInfo = {
   port: string;
   method: TRequestTypeUpper;
   clusterName: string;
+  lastTimestamp: number; //milliseconds
 };
 
 export type TEndpointDependencyCombined = {

@@ -215,6 +215,7 @@ export class Traces {
       method: trace.tags["http.method"] as TRequestTypeUpper,
       uniqueServiceName,
       uniqueEndpointName: `${uniqueServiceName}\t${trace.tags["http.method"]}\t${trace.tags["http.url"]}`,
+      lastTimestamp:trace.timestamp / 1000, 
     };
   }
 }

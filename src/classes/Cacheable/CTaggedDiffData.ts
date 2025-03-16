@@ -42,12 +42,15 @@ export class CTaggedDiffData extends Cacheable<TTaggedDiffData[]> {
     return data.filter((d) => d.tag === tag);
   }
 
-  add(tagged: TTaggedDiffData) {
-    const existing = this.getData(tagged.tag);
-    if (existing.length > 0) return;
-    tagged.time = Date.now();
-    const data = this.getData();
-    this.setData(data.concat(tagged));
+  add(taggedData: TTaggedDiffData) {
+    const existing = this.getData(taggedData.tag);
+    if (existing.length > 0) {
+      return;
+    } else {
+      taggedData.time = Date.now();
+      const data = this.getData();
+      this.setData(data.concat(taggedData));
+    }
   }
 
   delete(tag: string) {

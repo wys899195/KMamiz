@@ -13,6 +13,7 @@ export type TNode = {
   // id list for all dependencies
   dependencies: string[];
   linkInBetween: TLink[];
+  lastTimestamp: number;
 };
 export type TLink = {
   // link from id
