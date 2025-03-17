@@ -55,12 +55,11 @@ export class CTaggedDiffData extends Cacheable<TTaggedDiffData[]> {
     const data = this.getData();
     if (!data) return [];
 
-    const tagsSortedByTime = data
-      .sort((a, b) => (b.time!) - (a.time!)) //descending
+    const tags = data
       .map((t) => ({ tag: t.tag, time: t.time! })); 
 
     return Array.from(
-      new Set(tagsSortedByTime)
+      new Set(tags)
     );
   }
 

@@ -77,11 +77,28 @@ export default class GraphService extends IRequestHandler {
       "post", 
       "/diffData/tags", 
       async (req, res) => {
-      const tagged = req.body as TTaggedDiffData;
-      if (!tagged) res.sendStatus(400);
+      const { tag } = req.body as {
+        tag: string;
+      };
+      if (!tag) res.sendStatus(400);
       else {
-        this.addTaggedDiffData(tagged);
-        res.sendStatus(200);
+        const graphData = await this.getDependencyGraph();
+        const cohesionData = await this.getServiceCohesion();
+        const couplingData = await this.getServiceCoupling();
+        const instabilityData = await this.getServiceInstability();
+        if (!graphData || !cohesionData || ! couplingData || !instabilityData){
+          res.sendStatus(500);
+        } else {
+          this.addTaggedDiffData({
+            tag: tag,
+            graphData: graphData,
+            cohesionData: cohesionData,
+            couplingData: couplingData,
+            instabilityData: instabilityData
+          });
+          res.sendStatus(200);
+        }
+
       }
     });
     this.addRoute(
