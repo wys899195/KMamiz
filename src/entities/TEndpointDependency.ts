@@ -4,6 +4,7 @@ import { TRequestTypeUpper } from "./TRequestType";
 export type TEndpointDependency = {
   _id?: Types.ObjectId;
   endpoint: TEndpointInfo;
+  lastUsageTimestamp: number; //milliseconds
   dependingOn: {
     endpoint: TEndpointInfo;
     distance: number;
@@ -32,7 +33,7 @@ export type TEndpointInfo = {
   port: string;
   method: TRequestTypeUpper;
   clusterName: string;
-  lastTimestamp: number; //milliseconds
+  timestamp: number; //milliseconds
 };
 
 export type TEndpointDependencyCombined = {

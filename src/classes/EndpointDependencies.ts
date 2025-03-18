@@ -13,11 +13,65 @@ import DataCache from "../services/DataCache";
 import RiskAnalyzer from "../utils/RiskAnalyzer";
 // import Logger from "../utils/Logger";
 import { CLabelMapping } from "./Cacheable/CLabelMapping";
+import GlobalSettings from "../../src/GlobalSettings";
 
 export class EndpointDependencies {
   private readonly _dependencies: TEndpointDependency[];
+
+  private static parseThresholdToMilliseconds = (thresholdStr:string): number => {
+    if (!thresholdStr) return 0;
+    const regex = /(?:(\d+)d)?(?:(\d+)h)?(?:(\d+)m)?/;
+    const match = thresholdStr.match(regex);
+    if (!match) return 0;
+  
+    const days = match[1] ? parseInt(match[1], 10) : 0;
+    const hours = match[2] ? parseInt(match[2], 10) : 0;
+    const minutes = match[3] ? parseInt(match[3], 10) : 0;
+  
+    return ((days * 86400) + (hours * 3600) + (minutes * 60)) * 1000;
+  }
+
+  private static readonly graphNodeUseStatusThreshold = {
+    inActive:EndpointDependencies.parseThresholdToMilliseconds(GlobalSettings.InactiveEndpointThreshold),
+    deprecated: EndpointDependencies.parseThresholdToMilliseconds(GlobalSettings.DeprecatedEndpointThreshold),
+  }
+
+
+
   constructor(dependencies: TEndpointDependency[]) {
-    this._dependencies = dependencies;
+    this._dependencies = EndpointDependencies.filterOutDeprecatedEndpoint(dependencies)
+  }
+
+  private static filterOutDeprecatedEndpoint(dependencies: TEndpointDependency[]):TEndpointDependency[]{
+    /* 
+      If the endpoint's lastTimestamp is less than the deprecatedTimestamp, 
+      the endpoint is considered deprecated and will be filtered out of the dependencies. 
+    */
+    const now = Date.now();
+    const deprecatedTimestamp = EndpointDependencies.graphNodeUseStatusThreshold.deprecated === 0 
+      ? 0 
+      : now - EndpointDependencies.graphNodeUseStatusThreshold.deprecated;
+    
+    if (deprecatedTimestamp === 0) return dependencies;
+
+    const deprecateduniqueEndpointNames = new Set<string>();
+    dependencies = dependencies.filter((dep) => {
+      if (dep.lastUsageTimestamp < deprecatedTimestamp) {
+        deprecateduniqueEndpointNames.add(dep.endpoint.uniqueEndpointName);
+        return false;
+      }
+      return true;
+    });
+    dependencies.forEach((dependency) => {
+      dependency.dependingBy = dependency.dependingBy.filter((dep) => {
+        return !deprecateduniqueEndpointNames.has(dep.endpoint.uniqueEndpointName);
+      });
+      dependency.dependingOn = dependency.dependingOn.filter((dep) => {
+        return !deprecateduniqueEndpointNames.has(dep.endpoint.uniqueEndpointName);
+      });
+    });
+
+    return dependencies
   }
 
   toJSON() {
@@ -91,11 +145,14 @@ export class EndpointDependencies {
           ...d.endpoint,
           labelName,
         },
+        lastUsageTimestamp: d.lastUsageTimestamp,
         dependingOn,
         dependingBy,
       };
     });
   }
+
+
 
   toGraphData() {
     const serviceEndpointMap = new Map<string, TEndpointDependency[]>();
@@ -120,6 +177,11 @@ export class EndpointDependencies {
   private createBaseNodesAndLinks(
     serviceEndpointMap: Map<string, TEndpointDependency[]>
   ) {
+    const now = Date.now();
+    // If Threshold === 0, it means the threshold is not set. As a result, inactiveTimestamp will be set to 0, which will prevent nodes from being marked as inactive.
+    const inactiveTimestamp = EndpointDependencies.graphNodeUseStatusThreshold.inActive === 0 
+        ? 0 
+        : now - EndpointDependencies.graphNodeUseStatusThreshold.inActive;
     const existLabels = new Set<string>();
     const existLinks = new Set<string>();
     const nodes: TNode[] = [
@@ -130,14 +192,14 @@ export class EndpointDependencies {
         name: "external requests",
         dependencies: [],
         linkInBetween: [],
-        lastTimestamp:0,
+        usageStatus: "Active"
       },
     ];
     const links: TLink[] = [];
     [...serviceEndpointMap.entries()].forEach(([service, endpoint]) => {
       // service node
-      const maxLastTimestampOfEndpoints = Math.max(
-        ...endpoint.map((e) => e.endpoint.lastTimestamp || 0)
+      const serviceLastUseTimestamp = Math.max(
+        ...endpoint.map((e) => e.lastUsageTimestamp || 0)
       );
       nodes.push({
         id: service,
@@ -145,10 +207,11 @@ export class EndpointDependencies {
         name: service.replace("\t", "."),
         dependencies: [],
         linkInBetween: [],
-        lastTimestamp:maxLastTimestampOfEndpoints,
+        usageStatus: serviceLastUseTimestamp >= inactiveTimestamp ? "Active" : "Inactive"
       });
 
       endpoint.forEach((e) => {
+      const endpointLastUseTimestamp = e.lastUsageTimestamp;
         const id = `${e.endpoint.uniqueServiceName}\t${e.endpoint.method}\t${e.endpoint.labelName}`;
         // endpoint node
         if (!existLabels.has(id)) {
@@ -158,7 +221,7 @@ export class EndpointDependencies {
             name: `(${e.endpoint.version}) ${e.endpoint.method} ${e.endpoint.labelName}`,
             dependencies: [],
             linkInBetween: [],
-            lastTimestamp:e.endpoint.lastTimestamp,
+            usageStatus: endpointLastUseTimestamp >= inactiveTimestamp ? "Active" : "Inactive"
           });
           existLabels.add(id);
         }
@@ -194,6 +257,7 @@ export class EndpointDependencies {
             existLinks.add(`null\t${id}`);
           }
         }
+        
       });
     });
 
@@ -450,10 +514,7 @@ export class EndpointDependencies {
     endpointDependencies._dependencies.forEach((d) => {
       const existing = dependencyMap.get(d.endpoint.uniqueEndpointName);
       if (existing) {
-        existing.endpoint.endpoint.lastTimestamp = Math.max(
-          existing.endpoint.endpoint.lastTimestamp || 0,
-          d.endpoint.lastTimestamp || 0
-        );
+        d.lastUsageTimestamp = Math.max(d.lastUsageTimestamp,existing.endpoint.lastUsageTimestamp)
         d.dependingBy.forEach((dep) => {
           const id = `${dep.endpoint.uniqueEndpointName}\t${dep.distance}`;
           if (!existing.dependingBySet.has(id)) {

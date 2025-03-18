@@ -20,6 +20,8 @@ type Settings = {
   EnableTestingEndpoints: boolean;
   ServicePort: string;
   ServeOnly: boolean;
+  InactiveEndpointThreshold: string;
+  DeprecatedEndpointThreshold: string;
 };
 
 const {
@@ -43,6 +45,8 @@ const {
   ENABLE_TESTING_ENDPOINTS,
   SERVICE_PORT,
   SERVE_ONLY,
+  INACTIVE_ENDPOINT_THRESHOLD,
+  DEPRECATED_ENDPOINT_THRESHOLD,
 } = process.env;
 
 const GlobalSettings: Settings = {
@@ -69,6 +73,8 @@ const GlobalSettings: Settings = {
   EnableTestingEndpoints: ENABLE_TESTING_ENDPOINTS === "true",
   ServicePort: SERVICE_PORT || PORT || "3000",
   ServeOnly: SERVE_ONLY === "true",
+  InactiveEndpointThreshold: INACTIVE_ENDPOINT_THRESHOLD || "",
+  DeprecatedEndpointThreshold: DEPRECATED_ENDPOINT_THRESHOLD || "",
 };
 
 if (

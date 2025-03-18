@@ -3182,7 +3182,7 @@ const MockEndpointDependencies = [
       uniqueServiceName: "ratings\tbook\tv1",
       uniqueEndpointName:
         "ratings\tbook\tv1\tGET\thttp://ratings:9080/ratings/0",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingOn: [],
     dependingBy: [
@@ -3201,7 +3201,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "reviews\tbook\tv2",
           uniqueEndpointName:
             "reviews\tbook\tv2\tGET\thttp://reviews:9080/reviews/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -3221,7 +3221,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "productpage\tbook\tv1",
           uniqueEndpointName:
             "productpage\tbook\tv1\tGET\thttp://192.168.39.24:31629/productpage",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 2,
         type: "CLIENT",
@@ -3241,7 +3241,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "reviews\tbook\tv3",
           uniqueEndpointName:
             "reviews\tbook\tv3\tGET\thttp://reviews:9080/reviews/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -3263,7 +3263,7 @@ const MockEndpointDependencies = [
       uniqueServiceName: "reviews\tbook\tv2",
       uniqueEndpointName:
         "reviews\tbook\tv2\tGET\thttp://reviews:9080/reviews/0",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingOn: [
       {
@@ -3281,7 +3281,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "ratings\tbook\tv1",
           uniqueEndpointName:
             "ratings\tbook\tv1\tGET\thttp://ratings:9080/ratings/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -3303,7 +3303,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "productpage\tbook\tv1",
           uniqueEndpointName:
             "productpage\tbook\tv1\tGET\thttp://192.168.39.24:31629/productpage",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -3325,7 +3325,7 @@ const MockEndpointDependencies = [
       uniqueServiceName: "productpage\tbook\tv1",
       uniqueEndpointName:
         "productpage\tbook\tv1\tGET\thttp://192.168.39.24:31629/productpage",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingOn: [
       {
@@ -3343,7 +3343,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "reviews\tbook\tv1",
           uniqueEndpointName:
             "reviews\tbook\tv1\tGET\thttp://reviews:9080/reviews/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -3363,7 +3363,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "reviews\tbook\tv3",
           uniqueEndpointName:
             "reviews\tbook\tv3\tGET\thttp://reviews:9080/reviews/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -3383,7 +3383,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "details\tbook\tv1",
           uniqueEndpointName:
             "details\tbook\tv1\tGET\thttp://details:9080/details/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -3403,7 +3403,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "reviews\tbook\tv2",
           uniqueEndpointName:
             "reviews\tbook\tv2\tGET\thttp://reviews:9080/reviews/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -3423,7 +3423,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "ratings\tbook\tv1",
           uniqueEndpointName:
             "ratings\tbook\tv1\tGET\thttp://ratings:9080/ratings/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 2,
         type: "SERVER",
@@ -3446,7 +3446,7 @@ const MockEndpointDependencies = [
       uniqueServiceName: "details\tbook\tv1",
       uniqueEndpointName:
         "details\tbook\tv1\tGET\thttp://details:9080/details/0",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingOn: [],
     dependingBy: [
@@ -3465,7 +3465,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "productpage\tbook\tv1",
           uniqueEndpointName:
             "productpage\tbook\tv1\tGET\thttp://192.168.39.24:31629/productpage",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -3487,7 +3487,7 @@ const MockEndpointDependencies = [
       uniqueServiceName: "reviews\tbook\tv3",
       uniqueEndpointName:
         "reviews\tbook\tv3\tGET\thttp://reviews:9080/reviews/0",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingOn: [
       {
@@ -3505,7 +3505,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "ratings\tbook\tv1",
           uniqueEndpointName:
             "ratings\tbook\tv1\tGET\thttp://ratings:9080/ratings/0",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -3527,7 +3527,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "productpage\tbook\tv1",
           uniqueEndpointName:
             "productpage\tbook\tv1\tGET\thttp://192.168.39.24:31629/productpage",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -3549,7 +3549,7 @@ const MockEndpointDependencies = [
       uniqueServiceName: "reviews\tbook\tv1",
       uniqueEndpointName:
         "reviews\tbook\tv1\tGET\thttp://reviews:9080/reviews/0",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingOn: [],
     dependingBy: [
@@ -3568,7 +3568,7 @@ const MockEndpointDependencies = [
           uniqueServiceName: "productpage\tbook\tv1",
           uniqueEndpointName:
             "productpage\tbook\tv1\tGET\thttp://192.168.39.24:31629/productpage",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -4140,8 +4140,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "user-service\tpdas\tlatest",
       uniqueEndpointName:
         "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
-      lastTimestamp:0,
+      timestamp:0,
     },
+    lastUsageTimestamp:0,
     dependingBy: [
       {
         endpoint: {
@@ -4157,7 +4158,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "external-service\tpdas\tlatest",
           uniqueEndpointName:
             "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -4179,8 +4180,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "user-service\tpdas\tlatest",
       uniqueEndpointName:
         "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
-      lastTimestamp:0,
+      timestamp:0,
     },
+    lastUsageTimestamp:0,
     dependingBy: [
       {
         endpoint: {
@@ -4196,7 +4198,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "external-service\tpdas\tlatest",
           uniqueEndpointName:
             "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -4218,8 +4220,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "contract-service\tpdas\tlatest",
       uniqueEndpointName:
         "contract-service\tpdas\tlatest\tPOST\thttp://contract-service.pdas.svc.cluster.local/internal/contract/init",
-      lastTimestamp:0,
+      timestamp:0,
     },
+    lastUsageTimestamp:0,
     dependingBy: [
       {
         endpoint: {
@@ -4235,7 +4238,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "external-service\tpdas\tlatest",
           uniqueEndpointName:
             "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "CLIENT",
@@ -4257,7 +4260,7 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "external-service\tpdas\tlatest",
       uniqueEndpointName:
         "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-      lastTimestamp:0,
+      timestamp:0,
     },
     dependingBy: [],
     dependingOn: [
@@ -4275,7 +4278,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "user-service\tpdas\tlatest",
           uniqueEndpointName:
             "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",
@@ -4294,7 +4297,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "contract-service\tpdas\tlatest",
           uniqueEndpointName:
             "contract-service\tpdas\tlatest\tPOST\thttp://contract-service.pdas.svc.cluster.local/internal/contract/init",
-          lastTimestamp:0,
+          timestamp:0,
         },
         distance: 1,
         type: "SERVER",

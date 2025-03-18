@@ -181,11 +181,31 @@ export class Traces {
 
         return {
           endpoint: Traces.ToEndpointInfo(span),
-          dependingBy,
-          dependingOn,
+          lastUsageTimestamp: 0, // unset
+          dependingBy:dependingBy,
+          dependingOn:dependingOn,
         };
       }
     );
+
+    // Find the last used timestamp of each endpoint
+    const endpointLastTimestampMap = new Map<string, number>();
+    const updateEndpointLastTimestampMap = (endpoint: TEndpointInfo) => {
+      const { uniqueEndpointName, timestamp } = endpoint;
+      endpointLastTimestampMap.set(
+        uniqueEndpointName,
+        Math.max(endpointLastTimestampMap.get(uniqueEndpointName) ?? 0, timestamp)
+      );
+    };
+    dependencies.forEach((dependency) => {
+      updateEndpointLastTimestampMap(dependency.endpoint);
+      dependency.dependingBy.forEach((dep) => updateEndpointLastTimestampMap(dep.endpoint));
+      dependency.dependingOn.forEach((dep) => updateEndpointLastTimestampMap(dep.endpoint));
+    });
+    dependencies.forEach((dependency) => {
+      dependency.lastUsageTimestamp = endpointLastTimestampMap.get(dependency.endpoint.uniqueEndpointName) ?? 0; 
+    });
+
     return new EndpointDependencies(dependencies);
   }
 
@@ -215,7 +235,7 @@ export class Traces {
       method: trace.tags["http.method"] as TRequestTypeUpper,
       uniqueServiceName,
       uniqueEndpointName: `${uniqueServiceName}\t${trace.tags["http.method"]}\t${trace.tags["http.url"]}`,
-      lastTimestamp:trace.timestamp / 1000, 
+      timestamp:trace.timestamp / 1000, 
     };
   }
 }
