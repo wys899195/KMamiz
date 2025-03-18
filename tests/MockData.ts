@@ -4140,9 +4140,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "user-service\tpdas\tlatest",
       uniqueEndpointName:
         "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
-      timestamp:0,
+      timestamp:1646208338224.823,
     },
-    lastUsageTimestamp:0,
+    lastUsageTimestamp:1646208338227.724,
     dependingBy: [
       {
         endpoint: {
@@ -4158,7 +4158,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "external-service\tpdas\tlatest",
           uniqueEndpointName:
             "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-          timestamp:0,
+          timestamp:1646208338216.165,
         },
         distance: 1,
         type: "CLIENT",
@@ -4180,9 +4180,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "user-service\tpdas\tlatest",
       uniqueEndpointName:
         "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
-      timestamp:0,
+      timestamp:1646208338227.724,
     },
-    lastUsageTimestamp:0,
+    lastUsageTimestamp:1646208338227.724,
     dependingBy: [
       {
         endpoint: {
@@ -4198,7 +4198,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "external-service\tpdas\tlatest",
           uniqueEndpointName:
             "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-          timestamp:0,
+          timestamp:1646208338216.165,
         },
         distance: 1,
         type: "CLIENT",
@@ -4220,9 +4220,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "contract-service\tpdas\tlatest",
       uniqueEndpointName:
         "contract-service\tpdas\tlatest\tPOST\thttp://contract-service.pdas.svc.cluster.local/internal/contract/init",
-      timestamp:0,
+      timestamp:1646208338231.628,
     },
-    lastUsageTimestamp:0,
+    lastUsageTimestamp:1646208338231.628,
     dependingBy: [
       {
         endpoint: {
@@ -4238,7 +4238,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "external-service\tpdas\tlatest",
           uniqueEndpointName:
             "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-          timestamp:0,
+          timestamp:1646208338216.165,
         },
         distance: 1,
         type: "CLIENT",
@@ -4260,8 +4260,9 @@ const MockEndpointDependenciesPDAS = [
       uniqueServiceName: "external-service\tpdas\tlatest",
       uniqueEndpointName:
         "external-service\tpdas\tlatest\tPOST\thttp://10.104.207.91/pdas/sa/requestContract",
-      timestamp:0,
+      timestamp:1646208338216.165,
     },
+    lastUsageTimestamp: 1646208338216.165,
     dependingBy: [],
     dependingOn: [
       {
@@ -4278,7 +4279,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "user-service\tpdas\tlatest",
           uniqueEndpointName:
             "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
-          timestamp:0,
+          timestamp:1646208338227.724,
         },
         distance: 1,
         type: "SERVER",
@@ -4297,7 +4298,7 @@ const MockEndpointDependenciesPDAS = [
           uniqueServiceName: "contract-service\tpdas\tlatest",
           uniqueEndpointName:
             "contract-service\tpdas\tlatest\tPOST\thttp://contract-service.pdas.svc.cluster.local/internal/contract/init",
-          timestamp:0,
+          timestamp:1646208338231.628,
         },
         distance: 1,
         type: "SERVER",
@@ -4582,8 +4583,9 @@ const MockHistoricalData: THistoricalData[] = [
         date: new Date(Utils.BelongsToMinuteTimestamp(Date.now() - 86400000)),
         endpoints: [
           {
+            labelName: undefined,
             latencyCV: 0.17888543819998,
-            latencyMean: 0.17888543819998,
+            latencyMean: 0.1,
             method: Method,
             requestErrors: 0,
             requests: 10,
@@ -4598,7 +4600,7 @@ const MockHistoricalData: THistoricalData[] = [
         requests: 10,
         requestErrors: 0,
         serverErrors: 0,
-        latencyMean: 0.17888543819998,
+        latencyMean: 0.1,
         latencyCV: 0.17888543819998,
         uniqueServiceName: UniqueServiceName,
         risk: 0.1,
@@ -4671,6 +4673,7 @@ const MockEndpointInfoPDAS1 = {
   uniqueServiceName: "user-service\tpdas\tlatest",
   uniqueEndpointName:
     "user-service\tpdas\tlatest\tGET\thttp://user-service.pdas.svc.cluster.local/internal/user/user/email/admin",
+  timestamp: 1646208338224.823,
 };
 
 export {
