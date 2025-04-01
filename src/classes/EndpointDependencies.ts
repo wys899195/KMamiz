@@ -11,7 +11,6 @@ import {
 import { TServiceEndpointCohesion } from "../entities/TServiceEndpointCohesion";
 import DataCache from "../services/DataCache";
 import RiskAnalyzer from "../utils/RiskAnalyzer";
-// import Logger from "../utils/Logger";
 import { CLabelMapping } from "./Cacheable/CLabelMapping";
 import GlobalSettings from "../../src/GlobalSettings";
 
