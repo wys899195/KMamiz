@@ -1,7 +1,7 @@
 import yaml from "js-yaml";
 import Ajv, { JSONSchemaType } from "ajv";
 import { TGraphData,TNode,TLink } from "../entities/TGraphData";
-
+import Logger from "../../src/utils/Logger";
 
 type TGraphSimulationYamlEndpoint = {
   path: string;
@@ -225,91 +225,97 @@ export default class DependencyGraphSimulator {
   }
 
   graphDataToYaml(graph: TGraphData): string {
-    const yamlObj: TGraphSimulationYaml = { namespaces: [] };
+    try{
+      const yamlObj: TGraphSimulationYaml = { namespaces: [] };
 
-    const endpointUniqueIdMap = new Map<string, string>();
-    const endpointUniqueIdCounterMap: Map<string, number> = new Map();
+      const endpointUniqueIdMap = new Map<string, string>();
+      const endpointUniqueIdCounterMap: Map<string, number> = new Map();
 
-    const endpointNodes = graph.nodes.filter(
-      (node) => node.id !== "null" && node.id.split("\t").length === 5
-    );// endpoint node has exactly 5 parts when split by "\t": service, namespace, version, method, path).
-    const serviceNodes = graph.nodes.filter(
-      (node) => node.id !== "null" && node.id.split("\t").length === 2
-    );// service node has exactly 2 parts when split by "\t": service, namespace).
+      const endpointNodes = graph.nodes.filter(
+        (node) => node.id !== "null" && node.id.split("\t").length === 5
+      );// endpoint node has exactly 5 parts when split by "\t": service, namespace, version, method, path).
+      const serviceNodes = graph.nodes.filter(
+        (node) => node.id !== "null" && node.id.split("\t").length === 2
+      );// service node has exactly 2 parts when split by "\t": service, namespace).
 
-    endpointNodes.forEach((node) => {
-      const [service, namespace, version, method] = node.id.split("\t");
-      const newEndpointIdPrefix = `ns-${namespace}-svc-${service}-${version}-ep-${method.toLowerCase()}`;
-      const serialNumber = (endpointUniqueIdCounterMap.get(newEndpointIdPrefix) || 1);
-      const newEndpointId = `${newEndpointIdPrefix}-${serialNumber}`;
-      endpointUniqueIdCounterMap.set(newEndpointIdPrefix, serialNumber + 1);
-      endpointUniqueIdMap.set(node.id, newEndpointId);
-    });
-  
-    serviceNodes.forEach((serviceNode) => {
-      const [serviceName, namespaceName] = serviceNode.id.split("\t");
-  
-      // Find or create the corresponding namespace object
-      let nsObj = yamlObj.namespaces.find((ns) => ns.namespace === namespaceName);
-      if (!nsObj) {
-        nsObj = { namespace: namespaceName, services: [] };
-        yamlObj.namespaces.push(nsObj);
-      }
-  
-      // Create service object
-      const serviceObj:TGraphSimulationYamlService = { service: serviceName, versions: [] };
-      nsObj.services.push(serviceObj);
-  
-      // Get all endpoint nodes under this service
-      const endpointsForService = endpointNodes.filter(
-        (epNode) => epNode.group === serviceNode.id
-      );
-
-      const versionMap = new Map<string, { version: string; endpoints: TGraphSimulationYamlEndpoint[] }>();
-      endpointsForService.forEach((epNode) => {
-        const [, , version, method, path] = epNode.id.split("\t");
-        const newEndpointId = endpointUniqueIdMap.get(epNode.id)!;
-        const endpointObj: TGraphSimulationYamlEndpoint = {
-          path,
-          method,
-          endpointUniqueId: newEndpointId,
-          dependOn: [] as string[],
-        };
-    
-        if (!versionMap.has(version)) {
-          versionMap.set(version, { version, endpoints: [] });
-        }
-        versionMap.get(version)!.endpoints.push(endpointObj);
+      endpointNodes.forEach((node) => {
+        const [service, namespace, version, method] = node.id.split("\t");
+        const newEndpointIdPrefix = `ns-${namespace}-svc-${service}-${version}-ep-${method.toLowerCase()}`;
+        const serialNumber = (endpointUniqueIdCounterMap.get(newEndpointIdPrefix) || 1);
+        const newEndpointId = `${newEndpointIdPrefix}-${serialNumber}`;
+        endpointUniqueIdCounterMap.set(newEndpointIdPrefix, serialNumber + 1);
+        endpointUniqueIdMap.set(node.id, newEndpointId);
       });
     
-      // Add version data to the service object
-      serviceObj.versions = Array.from(versionMap.values());
-    });
-  
-    // Based on the GraphData's links, fill in the dependOn data
-    graph.links.forEach((link) => {
-      const sourceParts = link.source.split("\t");
-      const targetParts = link.target.split("\t");
-      // Check if both source and target are endpoint nodes
-      if (sourceParts.length === 5 && targetParts.length === 5) {
-        const [sService, sNamespace, sVersion, sMethod, sPath] = sourceParts;
-        const targetNewId = endpointUniqueIdMap.get(link.target);
-        if (!targetNewId) return;
-  
-        // Find the corresponding endpoint object based on source node data
-        const nsObj = yamlObj.namespaces.find((ns) => ns.namespace === sNamespace);
-        if (!nsObj) return;
-        const svcObj = nsObj.services.find((svc) => svc.service === sService);
-        if (!svcObj) return;
-        const verObj = svcObj.versions.find((v) => v.version === sVersion);
-        if (!verObj) return;
-        const epObj = verObj.endpoints.find((ep) => ep.method === sMethod && ep.path === sPath);
-        if (epObj) {
-          epObj.dependOn.push(targetNewId);
+      serviceNodes.forEach((serviceNode) => {
+        const [serviceName, namespaceName] = serviceNode.id.split("\t");
+    
+        // Find or create the corresponding namespace object
+        let nsObj = yamlObj.namespaces.find((ns) => ns.namespace === namespaceName);
+        if (!nsObj) {
+          nsObj = { namespace: namespaceName, services: [] };
+          yamlObj.namespaces.push(nsObj);
         }
-      }
-    });
-  
-    return yaml.dump(yamlObj);
+    
+        // Create service object
+        const serviceObj:TGraphSimulationYamlService = { service: serviceName, versions: [] };
+        nsObj.services.push(serviceObj);
+    
+        // Get all endpoint nodes under this service
+        const endpointsForService = endpointNodes.filter(
+          (epNode) => epNode.group === serviceNode.id
+        );
+
+        const versionMap = new Map<string, { version: string; endpoints: TGraphSimulationYamlEndpoint[] }>();
+        endpointsForService.forEach((epNode) => {
+          const [, , version, method, path] = epNode.id.split("\t");
+          const newEndpointId = endpointUniqueIdMap.get(epNode.id)!;
+          const endpointObj: TGraphSimulationYamlEndpoint = {
+            path:decodeURIComponent(path),
+            method,
+            endpointUniqueId: newEndpointId,
+            dependOn: [] as string[],
+          };
+      
+          if (!versionMap.has(version)) {
+            versionMap.set(version, { version, endpoints: [] });
+          }
+          versionMap.get(version)!.endpoints.push(endpointObj);
+        });
+      
+        // Add version data to the service object
+        serviceObj.versions = Array.from(versionMap.values());
+      });
+    
+      // Based on the GraphData's links, fill in the dependOn data
+      graph.links.forEach((link) => {
+        const sourceParts = link.source.split("\t");
+        const targetParts = link.target.split("\t");
+        // Check if both source and target are endpoint nodes
+        if (sourceParts.length === 5 && targetParts.length === 5) {
+          const [sService, sNamespace, sVersion, sMethod, sPath] = sourceParts;
+          const targetNewId = endpointUniqueIdMap.get(link.target);
+          if (!targetNewId) return;
+    
+          // Find the corresponding endpoint object based on source node data
+          const nsObj = yamlObj.namespaces.find((ns) => ns.namespace === sNamespace);
+          if (!nsObj) return;
+          const svcObj = nsObj.services.find((svc) => svc.service === sService);
+          if (!svcObj) return;
+          const verObj = svcObj.versions.find((v) => v.version === sVersion);
+          if (!verObj) return;
+          const epObj = verObj.endpoints.find((ep) => ep.method === sMethod && ep.path === sPath);
+          if (epObj) {
+            epObj.dependOn.push(targetNewId);
+          }
+        }
+      });
+    
+      return yaml.dump(yamlObj, { lineWidth: -1 });
+    } catch (ex) {
+      Logger.error(`Error converting graph data to yaml, skipping.`);
+      Logger.error("", ex);
+      return '';
+    }
   }
 }

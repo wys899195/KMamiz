@@ -102,6 +102,39 @@ export default class GraphService extends IRequestHandler {
 
       }
     });
+
+    this.addRoute(
+      "post", 
+      "/diffData/simulate", 
+      async (req, res) => {
+      const graph = req.body as TGraphData;
+      if (!graph) res.sendStatus(400);
+      else {
+        const graphData = graph;
+        Logger.info("hey heys", JSON.stringify(graphData));
+        const cohesionData = await this.getServiceCohesion(); // TODO
+        const couplingData = await this.getServiceCoupling(); // TODO
+        const instabilityData = await this.getServiceInstability(); // TODO
+        if (!graphData || !cohesionData || ! couplingData || !instabilityData){
+          res.sendStatus(500);
+        } else {
+          const now = new Date();
+          const timestamp = now.getFullYear().toString() +
+                            String(now.getMonth() + 1).padStart(2, '0') +
+                            String(now.getDate()).padStart(2, '0') +
+                            String(now.getHours()).padStart(2, '0') +
+                            String(now.getMinutes()).padStart(2, '0');
+          this.addTaggedDiffData({
+            tag: timestamp,// TODO
+            graphData: graphData,
+            cohesionData: cohesionData,
+            couplingData: couplingData,
+            instabilityData: instabilityData
+          });
+          res.sendStatus(200);
+        }
+      }
+    });
     this.addRoute(
       "delete", 
       "/diffData/tags",
