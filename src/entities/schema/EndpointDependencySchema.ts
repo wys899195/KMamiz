@@ -13,11 +13,12 @@ export const EndpointInfoSchema: SchemaDefinitionProperty<TEndpointInfo> = {
   port: { type: String, required: true },
   method: { type: String, required: true },
   clusterName: { type: String, required: true },
-  lastTimestamp: { type: Number, required: true },
+  timestamp: { type: Number, required: true },
 };
 
 export const EndpointDependencySchema = new Schema<TEndpointDependency>({
   endpoint: EndpointInfoSchema,
+  lastUsageTimestamp: { type: Number, required: true },
   dependingOn: [
     {
       endpoint: EndpointInfoSchema,

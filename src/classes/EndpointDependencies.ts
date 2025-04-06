@@ -206,7 +206,7 @@ export class EndpointDependencies {
         name: service.replace("\t", "."),
         dependencies: [],
         linkInBetween: [],
-        usageStatus: serviceLastUseTimestamp >= inactiveTimestamp ? "Active" : "Inactive"
+        usageStatus: inactiveTimestamp === 0 || serviceLastUseTimestamp >= inactiveTimestamp ? "Active" : "Inactive"
       });
 
       endpoint.forEach((e) => {
@@ -220,7 +220,7 @@ export class EndpointDependencies {
             name: `(${e.endpoint.version}) ${e.endpoint.method} ${e.endpoint.labelName}`,
             dependencies: [],
             linkInBetween: [],
-            usageStatus: endpointLastUseTimestamp >= inactiveTimestamp ? "Active" : "Inactive"
+            usageStatus: inactiveTimestamp === 0 || endpointLastUseTimestamp >= inactiveTimestamp ? "Active" : "Inactive"
           });
           existLabels.add(id);
         }
