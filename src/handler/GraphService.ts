@@ -3,7 +3,6 @@ import { CLabeledEndpointDependencies } from "../classes/Cacheable/CLabeledEndpo
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CLabelMapping } from "../classes/Cacheable/CLabelMapping";
 import EndpointDataType from "../classes/EndpointDataType";
-import DependencyGraphSimulator from "../classes/DependencyGraphSimulator";
 import { EndpointDependencies } from "../classes/EndpointDependencies";
 import { TLineChartData } from "../entities/TLineChartData";
 import { TServiceStatistics } from "../entities/TStatistics";
@@ -262,41 +261,7 @@ export default class GraphService extends IRequestHandler {
       );
     });
 
-    this.addRoute(
-      "post",
-      "/simulate/yamlToDependency",
-      async (req, res) => {
-        const { yamlData } = req.body as { yamlData: string };
-        const simulator = new DependencyGraphSimulator();
-        const decodedYamlData = yamlData ? decodeURIComponent(yamlData) : '';
-        const validationResult = simulator.isValidYamlFormatForDependencySimulation(decodedYamlData);
-        if (!validationResult.valid) {
-          return res.status(400).json({ message: validationResult.message });
-        }
-        const graph = await simulator.yamlToGraphData(decodedYamlData);
 
-        if (graph) {
-          res.json(graph);
-        } else {
-          res.sendStatus(404);
-        }
-      }
-    );
-
-    this.addRoute(
-      "post",
-      "/simulate/endpointDependencyToYaml",
-      async (req, res) => {
-        const endpointDependencyGraph = req.body as TGraphData;
-        if (!endpointDependencyGraph) {
-          res.json('');
-        }
-        const simulator = new DependencyGraphSimulator();
-        const yamlString = await simulator.graphDataToYaml(endpointDependencyGraph);
-        res.json(yamlString);
-
-      }
-    );
   }
 
   async getDependencyGraph(namespace?: string) {

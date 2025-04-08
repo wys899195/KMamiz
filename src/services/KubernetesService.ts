@@ -139,8 +139,9 @@ export default class KubernetesService {
   }
 
   async forceKMamizSync() {
+    const svc = GlobalSettings.SimulatorMode ? "kmamiz-simulator" : "kmamiz";
     const client = new Axios({
-      baseURL: `http://kmamiz.${this.currentNamespace}.svc:${GlobalSettings.ServicePort}`,
+      baseURL: `http://${svc}.${this.currentNamespace}.svc:${GlobalSettings.ServicePort}`,
     });
     try {
       const syncPath = `/api/v${GlobalSettings.ApiVersion}/data/sync`;
