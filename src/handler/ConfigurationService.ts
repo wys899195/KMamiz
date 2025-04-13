@@ -1,7 +1,5 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import GlobalSettings from "../GlobalSettings";
-import Logger from "../../src/utils/Logger";
-
 
 export default class ConfigurationService extends IRequestHandler {
   constructor() {
@@ -10,7 +8,6 @@ export default class ConfigurationService extends IRequestHandler {
       "get",
       "/config",
       async (_, res) => {
-        Logger.info("GlobalSettings.SimulatorMode = ",GlobalSettings.SimulatorMode)
         res.json({ 
           SimulatorMode: GlobalSettings.SimulatorMode
         });
