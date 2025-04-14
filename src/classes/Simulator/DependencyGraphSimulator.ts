@@ -1,231 +1,22 @@
 import yaml from "js-yaml";
-import Ajv, { JSONSchemaType } from "ajv";
-import { TGraphData,TNode,TLink } from "../entities/TGraphData";
+import Simulator from './Simulator';
+import { TGraphData,TNode,TLink } from "../../entities/TGraphData";
+import {
+  TSimulationService,
+  TSimulationYAML,
+  TSimulationEndpoint,
+} from "../../entities/TSimulationYAML";
 
-type TSimulationResponseBody = {
-  status: string;
-  responseContentType: string;
-  responseBody: string;
-};
+export default class DependencyGraphSimulator extends Simulator {
+  private static instance?: DependencyGraphSimulator;
+  static getInstance = () => this.instance || (this.instance = new this());
 
-type TSimulationEndpointDatatype = {
-  requestContentType: string;
-  requestBody: string;
-  responses: TSimulationResponseBody[];
-};
-
-type TSimulationEndpointInfo = {
-  path: string;
-  method: string;
-};
-
-type TSimulationEndpoint = {
-  endpointUniqueId: string;
-  endpointInfo: TSimulationEndpointInfo;
-  datatype?: TSimulationEndpointDatatype;
-};
-
-type TSimulationServiceVersion = {
-  version: string;
-  replica?: number;
-  endpoints: TSimulationEndpoint[];
-};
-
-type TSimulationService = {
-  service: string;
-  versions: TSimulationServiceVersion[];
-};
-
-type TSimulationNamespace = {
-  namespace: string;
-  services: TSimulationService[];
-};
-
-type TSimulationEndpointDependency = {
-  endpointUniqueId: string;
-  dependOn: string[];
-};
-
-type TSimulationRequestErrorRate = {
-  status: string;
-  rate: number;
-};
-
-type TSimulationTrafficInfo = {
-  endpointUniqueId: string;
-  requestCount: number;
-  latency: number;
-  requestErrorRate: TSimulationRequestErrorRate[];
-};
-
-type TSimulationYaml = {
-  endpointsInfo: TSimulationNamespace[];
-  endpointDependencies: TSimulationEndpointDependency[];
-  trafficsInfo?: TSimulationTrafficInfo[];
-};
-
-const simulationResponseBodySchema: JSONSchemaType<TSimulationResponseBody> = {
-  type: "object",
-  properties: {
-    status: { type: "string" },
-    responseContentType: { type: "string" },
-    responseBody: { type: "string" },
-  },
-  required: ["status", "responseContentType", "responseBody"],
-};
-
-const simulationEndpointDatatypeSchema: JSONSchemaType<TSimulationEndpointDatatype> = {
-  type: "object",
-  properties: {
-    requestContentType: { type: "string" },
-    requestBody: { type: "string" },
-    responses: {
-      type: "array",
-      items: simulationResponseBodySchema,
-    },
-  },
-  required: ["requestContentType", "requestBody", "responses"],
-};
-
-const simulationEndpointInfoSchema: JSONSchemaType<TSimulationEndpointInfo> = {
-  type: "object",
-  properties: {
-    path: { type: "string" },
-    method: { type: "string" },
-  },
-  required: ["path", "method"],
-};
-
-const simulationEndpointSchema: JSONSchemaType<TSimulationEndpoint> = {
-  type: "object",
-  properties: {
-    endpointUniqueId: { type: "string" },
-    endpointInfo: simulationEndpointInfoSchema,
-    datatype: {
-      ...simulationEndpointDatatypeSchema,
-      nullable: true,
-    },
-  },
-  required: ["endpointUniqueId", "endpointInfo"],
-};
-
-const simulationServiceVersionSchema: JSONSchemaType<TSimulationServiceVersion> = {
-  type: "object",
-  properties: {
-    version: { type: "string" },
-    replica: { type: "integer", nullable: true },
-    endpoints: {
-      type: "array",
-      items: simulationEndpointSchema,
-    },
-  },
-  required: ["version", "endpoints"],
-};
-
-const simulationServiceSchema: JSONSchemaType<TSimulationService> = {
-  type: "object",
-  properties: {
-    service: { type: "string" },
-    versions: {
-      type: "array",
-      items: simulationServiceVersionSchema,
-    },
-  },
-  required: ["service", "versions"],
-};
-
-const simulationNamespaceSchema: JSONSchemaType<TSimulationNamespace> = {
-  type: "object",
-  properties: {
-    namespace: { type: "string" },
-    services: {
-      type: "array",
-      items: simulationServiceSchema,
-    },
-  },
-  required: ["namespace", "services"],
-};
-
-const simulationEndpointDependencySchema: JSONSchemaType<TSimulationEndpointDependency> = {
-  type: "object",
-  properties: {
-    endpointUniqueId: { type: "string" },
-    dependOn: {
-      type: "array",
-      items: { type: "string" },
-    },
-  },
-  required: ["endpointUniqueId", "dependOn"],
-};
-
-const simulationRequestErrorRateSchema: JSONSchemaType<TSimulationRequestErrorRate> = {
-  type: "object",
-  properties: {
-    status: { type: "string" },
-    rate: { type: "number" },
-  },
-  required: ["status", "rate"],
-};
-
-const simulationTrafficInfoSchema: JSONSchemaType<TSimulationTrafficInfo> = {
-  type: "object",
-  properties: {
-    endpointUniqueId: { type: "string" },
-    requestCount: { type: "integer" },
-    latency: { type: "integer" },
-    requestErrorRate: {
-      type: "array",
-      items: simulationRequestErrorRateSchema,
-    },
-  },
-  required: ["endpointUniqueId", "requestCount", "latency", "requestErrorRate"],
-};
-
-const simulationYamlSchema: JSONSchemaType<TSimulationYaml> = {
-  type: "object",
-  properties: {
-    endpointsInfo: {
-      type: "array",
-      items: simulationNamespaceSchema,
-    },
-    endpointDependencies: {
-      type: "array",
-      items: simulationEndpointDependencySchema,
-    },
-    trafficsInfo: {
-      type: "array",
-      items: simulationTrafficInfoSchema,
-      nullable: true,
-    },
-  },
-  required: ["endpointsInfo", "endpointDependencies"],
-};
-
-
-export default class DependencyGraphSimulator {
-  private readonly _yamlSchemaValidator: Ajv;
-
-  constructor() {
-    this._yamlSchemaValidator = new Ajv();
-  }
-
-  isValidYamlFormatForDependencySimulation(yamlString: string) {
-    try {
-      const parsed = yaml.load(yamlString);
-      const validate = this._yamlSchemaValidator.compile(simulationYamlSchema);
-      if (validate(parsed)) {
-        return { valid: true, message: "YAML format is correct" };
-      } else {
-        return { valid: false, message: "YAML format error: " + JSON.stringify(validate.errors) };
-      }
-    } catch (e) {
-      return { valid: false, message: "An error occurred while parsing YAML: " + e };
-    }
+  private constructor() {
+    super();
   }
 
   yamlToGraphData(yamlString: string): TGraphData {
-    const parsedYaml = yaml.load(yamlString) as TSimulationYaml;
-
+    const parsedYAML = yaml.load(yamlString) as TSimulationYAML;
     const nodes: TNode[] = [];
     const links: TLink[] = [];
     const existLinks = new Set<string>();
@@ -244,7 +35,7 @@ export default class DependencyGraphSimulator {
     });
 
     // create endpoint ID mapping and initialize dependedByMap
-    parsedYaml.endpointsInfo.forEach((ns) => {
+    parsedYAML.endpointsInfo.forEach((ns) => {
       ns.services.forEach((svc) => {
         const serviceId = `${svc.service}\t${ns.namespace}`;
         svc.versions.forEach((v) => {
@@ -258,7 +49,7 @@ export default class DependencyGraphSimulator {
     });
 
     // create nodes and service-endpoint links
-    parsedYaml.endpointsInfo.forEach((ns) => {
+    parsedYAML.endpointsInfo.forEach((ns) => {
       ns.services.forEach((svc) => {
         const serviceId = `${svc.service}\t${ns.namespace}`;
         nodes.push({
@@ -297,7 +88,7 @@ export default class DependencyGraphSimulator {
     });
 
     // handle endpointDependencies to create endpoint-endpoint links
-    parsedYaml.endpointDependencies.forEach((dep) => {
+    parsedYAML.endpointDependencies.forEach((dep) => {
       const fromId = endpointUniqueIdMap[dep.endpointUniqueId];
       if (!fromId) return;
 
@@ -326,8 +117,8 @@ export default class DependencyGraphSimulator {
     return { nodes, links };
   }
 
-  graphDataToYaml(graph: TGraphData): string {
-    const yamlObj: TSimulationYaml = { endpointsInfo: [], endpointDependencies: [] };
+  graphDataToYAML(graph: TGraphData): string {
+    const yamlObj: TSimulationYAML = { endpointsInfo: [], endpointDependencies: [] };
 
     const endpointUniqueIdMap = new Map<string, string>();
     const endpointUniqueIdCounterMap: Map<string, number> = new Map();
@@ -413,5 +204,6 @@ export default class DependencyGraphSimulator {
     return yaml.dump(yamlObj, { lineWidth: -1 });
 
   }
+
 }
 
