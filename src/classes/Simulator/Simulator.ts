@@ -1,32 +1,41 @@
 import yaml from "js-yaml";
-import Ajv, { ValidateFunction } from "ajv";
-import {simulationYAMLSchema} from "../../entities/TSimulationYAML";
+import { TSimulationYAML, simulationYAMLSchema } from "../../entities/TSimulationYAML";
 
 export default class Simulator {
 
-  private readonly yamlValidationFunc: ValidateFunction;
-
-  constructor() {
-    const ajv = new Ajv();
-    this.yamlValidationFunc = ajv.compile(simulationYAMLSchema);
-  }
-
-  isValidYAMLFormatForDependencySimulation(yamlString: string):
-  {
-    isYAMLValid:boolean,
-    message:string
-  }{
+  protected validateYAMLFormat(yamlString: string): {
+    validationErrorMessage: string,
+    parsedYAML: TSimulationYAML | null
+  } {
+    if (!yamlString.trim()) {
+      return {
+        validationErrorMessage: "",
+        parsedYAML: null,
+      };
+    }
     try {
-      const parsed = yaml.load(yamlString);
-      if (this.yamlValidationFunc(parsed)) {
-        return { isYAMLValid: true, message: "YAML format is correct" };
+      const parsedYAML = yaml.load(yamlString) as TSimulationYAML;
+      const validationResult = simulationYAMLSchema.safeParse(parsedYAML);
+      if (validationResult.success) {
+        return {
+          validationErrorMessage: "",
+          parsedYAML: parsedYAML
+        };
       } else {
-        return { isYAMLValid: false, message: "YAML format error \n\n" + JSON.stringify(this.yamlValidationFunc.errors) };
+        const formatErrorMessage = validationResult.error.errors
+          .map((err) => `• ${err.path.join(".")}: ${err.message}`)
+          .join("\n");
+        return {
+          validationErrorMessage: "YAML format error:\n" + formatErrorMessage,
+          parsedYAML: null
+        };
       }
     } catch (e) {
-      return { isYAMLValid: false, message: "An error occurred while parsing YAML \n\n" + e };
+      return {
+        validationErrorMessage: `An error occurred while parsing YAML \n\n${e instanceof Error ? e.message : e}`,
+        parsedYAML: null,
+      };
     }
   }
-
 }
 

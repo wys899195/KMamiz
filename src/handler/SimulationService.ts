@@ -15,16 +15,21 @@ export default class SimulationService extends IRequestHandler {
         const { yamlData } = req.body as { yamlData: string };
         const simulator = DependencyGraphSimulator.getInstance();
         const decodedYAMLData = yamlData ? decodeURIComponent(yamlData) : '';
-        const validationResult = simulator.isValidYAMLFormatForDependencySimulation(decodedYAMLData);
-        if (!validationResult.isYAMLValid) {
-          return res.status(400).json({ graph: null, message: validationResult.message });
-        } else {
-          try {
-            const graph = await simulator.yamlToGraphData(decodedYAMLData);
-            return res.status(200).json({ graph: graph, message: validationResult.message });
-          } catch (err) {
-            return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
+        try {
+          console.log("start .yamlToGraphData")
+          const result = simulator.yamlToGraphData(decodedYAMLData);
+          console.log("end .yamlToGraphData")
+
+          const isEmptyYAML = !decodedYAMLData.trim();
+          const hasNoYamlFormatError = !result.validationErrorMessage; 
+  
+          if (isEmptyYAML || hasNoYamlFormatError){
+            return res.status(200).json({ graph: result.graph, message: result.validationErrorMessage });
+          } else {
+            return res.status(400).json({ graph: result.graph, message: result.validationErrorMessage });
           }
+        } catch (err){
+          return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
         }
       }
     );
@@ -38,7 +43,7 @@ export default class SimulationService extends IRequestHandler {
           res.json('');
         }
         const simulator = DependencyGraphSimulator.getInstance();
-        const yamlString = await simulator.graphDataToYAML(endpointDependencyGraph);
+        const yamlString = simulator.graphDataToYAML(endpointDependencyGraph);
         res.json(yamlString);
 
       }

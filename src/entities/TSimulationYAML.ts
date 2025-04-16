@@ -1,200 +1,87 @@
-import { JSONSchemaType } from "ajv";
+import { z } from "zod";
 
-export type TSimulationResponseBody = {
-  status: string;
-  responseContentType: string;
-  responseBody: string;
-};
+export const simulationResponseBodySchema = z.object({
+  status: z.number().int().refine(
+    (val) => val >= 100 && val <= 599,
+    { message: "Invalid status code. Must be 100~599." }
+  ),
+  responseContentType: z.string(),
+  responseBody: z.string(),
+}).strict();
 
-export type TSimulationEndpointDatatype = {
-  requestContentType: string;
-  requestBody: string;
-  responses: TSimulationResponseBody[];
-};
+export const simulationEndpointDatatypeSchema = z.object({
+  requestContentType: z.string(),
+  requestBody: z.string(),
+  responses: z.array(simulationResponseBodySchema),
+}).strict();
 
-export type TSimulationEndpointInfo = {
-  path: string;
-  method: string;
-};
+export const simulationEndpointInfoSchema = z.object({
+  path: z.string(),
+  method: z.string(),
+}).strict();
 
-export type TSimulationEndpoint = {
-  endpointUniqueId: string;
-  endpointInfo: TSimulationEndpointInfo;
-  datatype?: TSimulationEndpointDatatype;
-};
+export const simulationEndpointSchema = z.object({
+  endpointUniqueId: z.union([z.string(), z.number()]),
+  endpointInfo: simulationEndpointInfoSchema,
+  datatype: simulationEndpointDatatypeSchema.optional(),
+}).strict();
 
-export type TSimulationServiceVersion = {
-  version: string;
-  replica?: number;
-  endpoints: TSimulationEndpoint[];
-};
+export const simulationServiceVersionSchema = z.object({
+  version: z.union([z.string(), z.number()]),
+  replica: z.number()
+    .int({ message: "replica must be an integer." })
+    .min(1, { message: "replica (the number of service instances) must be at least 1 to simulate traffic injection." })
+    .optional(),
+  endpoints: z.array(simulationEndpointSchema),
+}).strict();
 
-export type TSimulationService = {
-  service: string;
-  versions: TSimulationServiceVersion[];
-};
+export const simulationServiceSchema = z.object({
+  service: z.string(),
+  versions: z.array(simulationServiceVersionSchema),
+}).strict();
 
-export type TSimulationNamespace = {
-  namespace: string;
-  services: TSimulationService[];
-};
+export const simulationNamespaceSchema = z.object({
+  namespace: z.string(),
+  services: z.array(simulationServiceSchema),
+}).strict();
 
-export type TSimulationEndpointDependency = {
-  endpointUniqueId: string;
-  dependOn: string[];
-};
+export const simulationEndpointDependencySchema = z.object({
+  endpointUniqueId: z.union([z.string(), z.number()]),
+  dependOn: z.array(z.string()),
+}).strict();
 
-export type TSimulationRequestErrorRate = {
-  status: string;
-  rate: number;
-};
+export const simulationRequestErrorRateSchema = z.object({
+  status: z.number().int().refine(
+    (val) => val >= 100 && val <= 599,
+    { message: "Invalid status code. Must be 100~599." }
+  ),
+  rate: z.number().min(0).max(100),
+}).strict();
 
-export type TSimulationTrafficInfo = {
-  endpointUniqueId: string;
-  requestCount: number;
-  latency: number;
-  requestErrorRate: TSimulationRequestErrorRate[];
-};
+export const simulationTrafficInfoSchema = z.object({
+  endpointUniqueId: z.union([z.string(), z.number()]),
+  requestCount: z.number()
+    .int({ message: "requestCount must be an integer." })
+    .min(0, { message: "requestCount cannot be negative." }),
+  latency: z.number().min(0, { message: "latency must be zero or greater." }),
+  requestErrorRate: z.array(simulationRequestErrorRateSchema).optional(),
+}).strict();
 
-export type TSimulationYAML = {
-  endpointsInfo: TSimulationNamespace[];
-  endpointDependencies: TSimulationEndpointDependency[];
-  trafficsInfo?: TSimulationTrafficInfo[];
-};
+export const simulationYAMLSchema = z.object({
+  endpointsInfo: z.array(simulationNamespaceSchema),
+  endpointDependencies: z.array(simulationEndpointDependencySchema),
+  trafficsInfo: z.array(simulationTrafficInfoSchema).optional(),
+}).strict();
 
-const simulationResponseBodySchema: JSONSchemaType<TSimulationResponseBody> = {
-  type: "object",
-  properties: {
-    status: { type: "string" },
-    responseContentType: { type: "string" },
-    responseBody: { type: "string" },
-  },
-  required: ["status", "responseContentType", "responseBody"],
-};
+export type TSimulationResponseBody       = z.infer<typeof simulationResponseBodySchema>;
+export type TSimulationEndpointDatatype   = z.infer<typeof simulationEndpointDatatypeSchema>;
+export type TSimulationEndpointInfo       = z.infer<typeof simulationEndpointInfoSchema>;
+export type TSimulationEndpoint           = z.infer<typeof simulationEndpointSchema>;
+export type TSimulationServiceVersion     = z.infer<typeof simulationServiceVersionSchema>;
+export type TSimulationService            = z.infer<typeof simulationServiceSchema>;
+export type TSimulationNamespace          = z.infer<typeof simulationNamespaceSchema>;
+export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
+export type TSimulationRequestErrorRate   = z.infer<typeof simulationRequestErrorRateSchema>;
+export type TSimulationTrafficInfo        = z.infer<typeof simulationTrafficInfoSchema>;
+export type TSimulationYAML               = z.infer<typeof simulationYAMLSchema>;
 
-const simulationEndpointDatatypeSchema: JSONSchemaType<TSimulationEndpointDatatype> = {
-  type: "object",
-  properties: {
-    requestContentType: { type: "string" },
-    requestBody: { type: "string" },
-    responses: {
-      type: "array",
-      items: simulationResponseBodySchema,
-    },
-  },
-  required: ["requestContentType", "requestBody", "responses"],
-};
-
-const simulationEndpointInfoSchema: JSONSchemaType<TSimulationEndpointInfo> = {
-  type: "object",
-  properties: {
-    path: { type: "string" },
-    method: { type: "string" },
-  },
-  required: ["path", "method"],
-};
-
-const simulationEndpointSchema: JSONSchemaType<TSimulationEndpoint> = {
-  type: "object",
-  properties: {
-    endpointUniqueId: { type: "string" },
-    endpointInfo: simulationEndpointInfoSchema,
-    datatype: {
-      ...simulationEndpointDatatypeSchema,
-      nullable: true,
-    },
-  },
-  required: ["endpointUniqueId", "endpointInfo"],
-};
-
-const simulationServiceVersionSchema: JSONSchemaType<TSimulationServiceVersion> = {
-  type: "object",
-  properties: {
-    version: { type: "string" },
-    replica: { type: "integer", nullable: true },
-    endpoints: {
-      type: "array",
-      items: simulationEndpointSchema,
-    },
-  },
-  required: ["version", "endpoints"],
-};
-
-const simulationServiceSchema: JSONSchemaType<TSimulationService> = {
-  type: "object",
-  properties: {
-    service: { type: "string" },
-    versions: {
-      type: "array",
-      items: simulationServiceVersionSchema,
-    },
-  },
-  required: ["service", "versions"],
-};
-
-const simulationNamespaceSchema: JSONSchemaType<TSimulationNamespace> = {
-  type: "object",
-  properties: {
-    namespace: { type: "string" },
-    services: {
-      type: "array",
-      items: simulationServiceSchema,
-    },
-  },
-  required: ["namespace", "services"],
-};
-
-const simulationEndpointDependencySchema: JSONSchemaType<TSimulationEndpointDependency> = {
-  type: "object",
-  properties: {
-    endpointUniqueId: { type: "string" },
-    dependOn: {
-      type: "array",
-      items: { type: "string" },
-    },
-  },
-  required: ["endpointUniqueId", "dependOn"],
-};
-
-const simulationRequestErrorRateSchema: JSONSchemaType<TSimulationRequestErrorRate> = {
-  type: "object",
-  properties: {
-    status: { type: "string" },
-    rate: { type: "number" },
-  },
-  required: ["status", "rate"],
-};
-
-const simulationTrafficInfoSchema: JSONSchemaType<TSimulationTrafficInfo> = {
-  type: "object",
-  properties: {
-    endpointUniqueId: { type: "string" },
-    requestCount: { type: "integer" },
-    latency: { type: "integer" },
-    requestErrorRate: {
-      type: "array",
-      items: simulationRequestErrorRateSchema,
-    },
-  },
-  required: ["endpointUniqueId", "requestCount", "latency", "requestErrorRate"],
-};
-
-export const simulationYAMLSchema: JSONSchemaType<TSimulationYAML> = {
-  type: "object",
-  properties: {
-    endpointsInfo: {
-      type: "array",
-      items: simulationNamespaceSchema,
-    },
-    endpointDependencies: {
-      type: "array",
-      items: simulationEndpointDependencySchema,
-    },
-    trafficsInfo: {
-      type: "array",
-      items: simulationTrafficInfoSchema,
-      nullable: true,
-    },
-  },
-  required: ["endpointsInfo", "endpointDependencies"],
-};

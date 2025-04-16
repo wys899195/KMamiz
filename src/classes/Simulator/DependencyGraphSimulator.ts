@@ -1,6 +1,6 @@
 import yaml from "js-yaml";
 import Simulator from './Simulator';
-import { TGraphData,TNode,TLink } from "../../entities/TGraphData";
+import { TGraphData, TNode, TLink } from "../../entities/TGraphData";
 import {
   TSimulationService,
   TSimulationYAML,
@@ -11,12 +11,29 @@ export default class DependencyGraphSimulator extends Simulator {
   private static instance?: DependencyGraphSimulator;
   static getInstance = () => this.instance || (this.instance = new this());
 
-  private constructor() {
-    super();
-  }
+  yamlToGraphData(yamlString: string): {
+    validationErrorMessage: string
+    graph: TGraphData,
+  } {
+    const { validationErrorMessage, parsedYAML } = this.validateYAMLFormat(yamlString);
+    const rootNode: TNode = {
+      id: "null",
+      group: "null",
+      name: "external requestsS",
+      dependencies: [],
+      linkInBetween: [],
+      usageStatus: "Active",
+    };
 
-  yamlToGraphData(yamlString: string): TGraphData {
-    const parsedYAML = yaml.load(yamlString) as TSimulationYAML;
+    if (!parsedYAML) {
+      return {
+        validationErrorMessage,
+        graph: {
+          nodes: [rootNode],
+          links: []
+        },
+      };
+    }
     const nodes: TNode[] = [];
     const links: TLink[] = [];
     const existLinks = new Set<string>();
@@ -25,14 +42,7 @@ export default class DependencyGraphSimulator extends Simulator {
     const dependedByMap: Map<string, string[]> = new Map();
 
     // root node (external)
-    nodes.push({
-      id: "null",
-      group: "null",
-      name: "external requestsS",
-      dependencies: [],
-      linkInBetween: [],
-      usageStatus: "Active",
-    });
+    nodes.push(rootNode);
 
     // create endpoint ID mapping and initialize dependedByMap
     parsedYAML.endpointsInfo.forEach((ns) => {
@@ -41,7 +51,7 @@ export default class DependencyGraphSimulator extends Simulator {
         svc.versions.forEach((v) => {
           v.endpoints.forEach((ep) => {
             const endpointId = `${serviceId}\t${v.version}\t${ep.endpointInfo.method.toUpperCase()}\t${ep.endpointInfo.path}`;
-            endpointUniqueIdMap[ep.endpointUniqueId] = endpointId;
+            endpointUniqueIdMap[String(ep.endpointUniqueId)] = endpointId;
             dependedByMap.set(endpointId, []);
           });
         });
@@ -89,7 +99,7 @@ export default class DependencyGraphSimulator extends Simulator {
 
     // handle endpointDependencies to create endpoint-endpoint links
     parsedYAML.endpointDependencies.forEach((dep) => {
-      const fromId = endpointUniqueIdMap[dep.endpointUniqueId];
+      const fromId = endpointUniqueIdMap[String(dep.endpointUniqueId)];
       if (!fromId) return;
 
       dep.dependOn.forEach((targetUniqueId) => {
@@ -114,7 +124,11 @@ export default class DependencyGraphSimulator extends Simulator {
       }
     });
 
-    return { nodes, links };
+    const graph = { nodes, links };
+    return {
+      validationErrorMessage,
+      graph,
+    };
   }
 
   graphDataToYAML(graph: TGraphData): string {
