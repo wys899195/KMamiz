@@ -523,7 +523,7 @@ export class EndpointDependencies {
         });
         d.dependingOn.forEach((dep) => {
           const id = `${dep.endpoint.uniqueEndpointName}\t${dep.distance}`;
-          if (!existing.dependingBySet.has(id)) {
+          if (!existing.dependingOnSet.has(id)) {
             existing.endpoint.dependingOn.push(dep);
             existing.dependingOnSet.add(id);
           }

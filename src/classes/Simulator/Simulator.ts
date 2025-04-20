@@ -15,8 +15,11 @@ export default class Simulator {
     }
     try {
       const parsedYAML = yaml.load(yamlString) as TSimulationYAML;
+      
       const validationResult = simulationYAMLSchema.safeParse(parsedYAML);
       if (validationResult.success) {
+        // Convert all status and version fields in parsedYAML to strings
+        this.convertStatusAndVersionToString(parsedYAML);
         return {
           validationErrorMessage: "",
           parsedYAML: parsedYAML
@@ -36,6 +39,31 @@ export default class Simulator {
         parsedYAML: null,
       };
     }
+  }
+
+  private convertStatusAndVersionToString(parsedYAML: TSimulationYAML): void {
+    // Convert all status and version fields in parsedYAML to strings
+    parsedYAML.endpointsInfo.forEach(namespace => {
+      namespace.services.forEach(service => {
+        service.versions.forEach(version => {
+          version.version = String(version.version);
+          
+          version.endpoints.forEach(endpoint => {
+            if (endpoint.datatype?.responses) {
+              endpoint.datatype.responses.forEach(response => {
+                response.status = String(response.status);
+              });
+            }
+          });
+        });
+      });
+    });
+    
+    parsedYAML.trafficsInfo?.forEach(traffic => {
+      traffic.statusRate?.forEach(statusRate => {
+        statusRate.status = String(statusRate.status);
+      });
+    });
   }
 }
 
