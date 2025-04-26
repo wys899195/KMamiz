@@ -54,34 +54,41 @@ app.use(spaRouter);
 
 (async () => {
   if (!GlobalSettings.ServeOnly) {
-    if (GlobalSettings.IsRunningInKubernetes) {
-      await KubernetesService.getInstance().forceKMamizSync();
-    }
-
-    const aggregatedData =
-      await MongoOperator.getInstance().getAggregatedData();
-
-    if (GlobalSettings.ResetEndpointDependencies) {
-      Logger.info("Resetting EndpointDependencies.");
-      await Initializer.getInstance().forceRecreateEndpointDependencies();
-    }
-
-    Logger.info("Running startup tasks.");
-    await Initializer.getInstance().serverStartUp();
-
-    const rlData = DataCache.getInstance()
-      .get<CCombinedRealtimeData>("CombinedRealtimeData")
-      .getData();
-
-    if (!aggregatedData && rlData?.toJSON().length === 0) {
-      Logger.info("Database is empty, running first time setup.");
-      try {
-        await Initializer.getInstance().firstTimeSetup();
-      } catch (err) {
-        Logger.error("Cannot run first time setup, skipping.");
-        Logger.plain.error("", err);
+    if (!GlobalSettings.SimulatorMode) { //production mode
+      if (GlobalSettings.IsRunningInKubernetes) {
+        await KubernetesService.getInstance().forceKMamizSync();
       }
+  
+      const aggregatedData =
+        await MongoOperator.getInstance().getAggregatedData();
+  
+      if (GlobalSettings.ResetEndpointDependencies) {
+        Logger.info("Resetting EndpointDependencies.");
+        await Initializer.getInstance().forceRecreateEndpointDependencies();
+      }
+  
+      Logger.info("Running startup tasks.");
+      await Initializer.getInstance().productionServerStartUp();
+  
+      const rlData = DataCache.getInstance()
+        .get<CCombinedRealtimeData>("CombinedRealtimeData")
+        .getData();
+  
+      if (!aggregatedData && rlData?.toJSON().length === 0) {
+        Logger.info("Database is empty, running first time setup.");
+        try {
+          await Initializer.getInstance().firstTimeSetup();
+        } catch (err) {
+          Logger.error("Cannot run first time setup, skipping.");
+          Logger.plain.error("", err);
+        }
+      }
+    } else {//simulation mode
+      Logger.info("Running startup tasks.");
+      await Initializer.getInstance().simulationServerStartUp();
+  
     }
+
   }
 
   Logger.info("Initialization done, starting server");
@@ -90,7 +97,7 @@ app.use(spaRouter);
     exitHook(async (callback) => {
       Logger.info("Received termination signal, execute teardown procedures.");
 
-      if (!GlobalSettings.ReadOnlyMode && !GlobalSettings.ServeOnly) {
+      if (!GlobalSettings.ReadOnlyMode && !GlobalSettings.ServeOnly && !GlobalSettings.SimulatorMode) {
         await DispatchStorage.getInstance().syncAll();
       } else {
         Logger.info("Readonly mode enabled, skipping teardown.");

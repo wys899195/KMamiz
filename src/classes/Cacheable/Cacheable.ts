@@ -1,3 +1,4 @@
+import GlobalSettings from "../../../src/GlobalSettings";
 export abstract class Cacheable<T> {
   private readonly _name: string;
   private _data?: T;
@@ -39,10 +40,18 @@ export abstract class Cacheable<T> {
   }
 
   protected setInit(f: () => Promise<void>) {
-    this._init = f;
+    if (GlobalSettings.SimulatorMode) {
+      this._init = async () => {}; // will not load base data from database
+    } else {
+      this._init = f;
+    }
   }
   protected setSync(f: () => Promise<void>) {
-    this._sync = f;
+    if (GlobalSettings.SimulatorMode) {
+      this._sync = async () => {}; // will not sync data to database
+    } else {
+      this._sync = f;
+    }
   }
 
   protected clear() {

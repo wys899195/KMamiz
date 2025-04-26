@@ -9,29 +9,43 @@ import {
 } from "../../entities/TSimulationYAML";
 
 import { TRealtimeData } from "../../entities/TRealtimeData";
+import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
+
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointInfo, TEndpointDependency } from "../../entities/TEndpointDependency";
-import { TRequestTypeUpper } from "../../entities/TRequestType"; 
+import { TRequestTypeUpper } from "../../entities/TRequestType";
+import { TEndpointDataType } from "../../entities/TEndpointDataType";
 
+import { EndpointDependencies } from "../EndpointDependencies";
+import { RealtimeDataList } from "../RealtimeDataList";
+
+import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
+import DataCache from "../../services/DataCache";
+
+import Logger from "../../../src/utils/Logger";
 
 export default class TrafficSimulator extends Simulator {
   private static instance?: TrafficSimulator;
   static getInstance = () => this.instance || (this.instance = new this());
 
-  yamlSimulatesRetrievingRealtimeData(yamlString: string): { 
-    validationErrorMessage: string; 
-    rtDatas: TRealtimeData[]; 
-    replicaCountList: TReplicaCount[]; 
+  yamlToSimulationRetrieveData(yamlString: string): {
+    validationErrorMessage: string; // error message when validating YAML format
+    convertingErrorMessage: string; // error message when converting to realtime data
+    rlDataList: TCombinedRealtimeData[];
     endpointDependencies: TEndpointDependency[];
+    dataType: TEndpointDataType[]
+    replicaCountList: TReplicaCount[];
   } {
     const { validationErrorMessage, parsedYAML } = this.validateYAMLFormat(yamlString);
 
     if (!parsedYAML) {
       return {
         validationErrorMessage: validationErrorMessage,
-        rtDatas: [],
-        replicaCountList: [],
+        convertingErrorMessage: "",
+        rlDataList: [],
         endpointDependencies: [],
+        dataType: [],
+        replicaCountList: [],
       };
     }
 
@@ -40,11 +54,12 @@ export default class TrafficSimulator extends Simulator {
     const trafficMap = this.buildTrafficMap(parsedYAML.trafficsInfo);
 
     const {
-      rtDatas,
+      rlDataList,
+      sampleRlDataList,
       replicaCountList,
       endpointInfoSet
     } = this.extractServiceAndEndpointData(parsedYAML.endpointsInfo, trafficMap, trafficDate);
-  
+
     const {
       dependOnMap,
       dependByMap
@@ -56,16 +71,60 @@ export default class TrafficSimulator extends Simulator {
       endpointInfoSet,
       dependOnMap,
       dependByMap,
-    );   
+    );
 
-    return {
-      validationErrorMessage: validationErrorMessage,
-      rtDatas: rtDatas,
-      replicaCountList: replicaCountList,
-      endpointDependencies: endpointDependencies
-    };
+    try {
+      return {
+        validationErrorMessage: "",
+        convertingErrorMessage: "",
+        ...this.convertRawToRealtimeData(
+          rlDataList,
+          sampleRlDataList,
+          endpointDependencies
+        ),
+        replicaCountList: replicaCountList,
+      };
+    } catch (err) {
+      const errMsg = `${err instanceof Error ? err.message : err}`
+      Logger.error("Failed to convert simulationRawData to realtimeData, skipping.");
+      Logger.verbose("-detail: ",errMsg);
+      return {
+        validationErrorMessage: "",
+        convertingErrorMessage: `Failed to convert simulationRawData to realtimeData:\n ${errMsg}`,
+        rlDataList: [],
+        endpointDependencies: [],
+        dataType: [],
+        replicaCountList: [],
+      };
+    }
   }
 
+  convertRawToRealtimeData(
+    rlDataList: TRealtimeData[],
+    sampleRlDataList: TRealtimeData[],
+    endpointDependencies: TEndpointDependency[],
+  ) {
+    const cbData = new RealtimeDataList(rlDataList).toCombinedRealtimeData();
+    const sampleCbdata = new RealtimeDataList(sampleRlDataList).toCombinedRealtimeData();
+    const dataType = sampleCbdata.extractEndpointDataType();
+    const existingDep = DataCache.getInstance()
+      .get<CEndpointDependencies>("EndpointDependencies")
+      .getData()?.toJSON();
+    const newDep = new EndpointDependencies(endpointDependencies);
+    
+    const dep = existingDep
+    ? new EndpointDependencies(existingDep).combineWith(newDep)
+    : newDep;
+
+    //console.error("Error while creating endpoint dependencies:", err);
+    //console.error("Error while converting realtime data:", err);
+
+    return {
+      rlDataList: cbData.toJSON(),
+      endpointDependencies: dep.toJSON(),
+      dataType: dataType.map((d) => d.toJSON()),
+    }
+  }
 
   private buildTrafficMap(trafficsInfo?: TSimulationTrafficInfo[]): Map<string, TSimulationTrafficInfo> {
     const trafficMap = new Map<string, TSimulationTrafficInfo>();
@@ -79,17 +138,17 @@ export default class TrafficSimulator extends Simulator {
   } {
     const dependOnMap = new Map<string, Set<string>>();
     const dependByMap = new Map<string, Set<string>>();
-  
+
     dependencies?.forEach(dep => {
       const from = dep.endpointUniqueId;
       const toList = dep.dependOn || [];
-  
+
       let fromSet = dependOnMap.get(from);
       if (!fromSet) {
         fromSet = new Set();
         dependOnMap.set(from, fromSet);
       }
-  
+
       toList.forEach(to => {
         // Establish dependency A -> B
         fromSet!.add(to);
@@ -103,24 +162,26 @@ export default class TrafficSimulator extends Simulator {
         toSet!.add(from);
       });
     });
-  
+
     return { dependOnMap, dependByMap };
   }
-  
+
   private extractServiceAndEndpointData(
     endpointsInfo: TSimulationNamespace[],
     trafficMap: Map<string, TSimulationTrafficInfo>,
     trafficDate: number,
   ): {
-    rtDatas: TRealtimeData[];
+    rlDataList: TRealtimeData[];
+    sampleRlDataList: TRealtimeData[];
     replicaCountList: TReplicaCount[];
     endpointInfoSet: Map<string, TEndpointInfo>;
   } {
-    const rtDatas: TRealtimeData[] = [];
+    const rlDataList: TRealtimeData[] = [];
+    const sampleRlDataList: TRealtimeData[] = []; // to extract static data types even without traffic
     const replicaCountList: TReplicaCount[] = [];
     const endpointInfoSet = new Map<string, TEndpointInfo>();
     const processedUniqueServiceNameSet = new Set<string>();
-  
+
     for (const ns of endpointsInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
@@ -145,11 +206,13 @@ export default class TrafficSimulator extends Simulator {
             const url = `${host}${path}`; // port default 80
             const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
             const uniqueEndpointName = `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
-  
-              
+
+
             // create a realtimeData
-            const rldatasForEndpoint = this.createRealtimeDataFromEndpoint(
+            this.collectEndpointRealtimeData(
               trafficDate,
+              rlDataList,
+              sampleRlDataList,
               uniqueServiceName,
               uniqueEndpointName,
               ns.namespace,
@@ -159,8 +222,7 @@ export default class TrafficSimulator extends Simulator {
               ep.datatype,
               trafficMap.get(ep.endpointUniqueId),
             );
-            rtDatas.push(...rldatasForEndpoint);
-  
+
             // create TEndpointInfo and insert into endpointInfoSet(used to create endpointDependencies)
             endpointInfoSet.set(ep.endpointUniqueId, {
               uniqueServiceName,
@@ -181,12 +243,14 @@ export default class TrafficSimulator extends Simulator {
         }
       }
     }
-  
-    return { rtDatas, replicaCountList, endpointInfoSet };
+
+    return { rlDataList, sampleRlDataList, replicaCountList, endpointInfoSet };
   }
-  
-  private createRealtimeDataFromEndpoint(
+
+  private collectEndpointRealtimeData(
     trafficDate: number,
+    rlDataList: TRealtimeData[],
+    sampleRlDataList: TRealtimeData[],
     uniqueServiceName: string,
     uniqueEndpointName: string,
     namespace: string,
@@ -195,10 +259,8 @@ export default class TrafficSimulator extends Simulator {
     methodUpperCase: TRequestTypeUpper,
     datatype?: TSimulationEndpointDatatype,
     traffic?: TSimulationTrafficInfo
-  ): TRealtimeData[] {
-    if (!traffic) return [];
-
-    // 2. 建立 status → response 快取 map
+  ) {
+    // Create a response map based on datatype
     const respMap = new Map<string, { body: string; contentType: string }>();
     datatype?.responses?.forEach(r => {
       respMap.set(r.status, {
@@ -206,15 +268,11 @@ export default class TrafficSimulator extends Simulator {
         contentType: r.responseContentType
       });
     });
+    const sampleStatuses = [...respMap.keys()];
+    console.log("sampleStatuses = ", sampleStatuses);
+    console.log("\n\n");
 
-    // determine the status of each realtimeData based on the statusRate in the trafficsInfo
-    const statuses = this.allocateStatuses(
-      traffic.requestCount,
-      traffic.statusRate,
-      datatype,
-    );
-
-    return statuses.map(status => ({
+    sampleRlDataList.push(...sampleStatuses.map(status => ({
       uniqueServiceName,
       uniqueEndpointName,
       timestamp: trafficDate * 1000, // microseconds
@@ -222,21 +280,46 @@ export default class TrafficSimulator extends Simulator {
       service,
       namespace,
       version,
-      latency: traffic.latency,
+      latency: 0,
       status,
       responseBody: respMap.get(status)?.body,
       responseContentType: respMap.get(status)?.contentType,
       requestBody: datatype?.requestBody,
       requestContentType: datatype?.requestContentType,
       replica: undefined
-    }));
+    })));
+
+    if (traffic) {
+      // determine the status of each realtimeData based on the statusRate in the trafficsInfo
+      const statuses = this.allocateStatuses(
+        traffic.requestCount,
+        traffic.statusRate,
+        datatype,
+      );
+      rlDataList.push(...statuses.map(status => ({
+        uniqueServiceName,
+        uniqueEndpointName,
+        timestamp: trafficDate * 1000, // microseconds
+        method: methodUpperCase,
+        service,
+        namespace,
+        version,
+        latency: traffic.latency,
+        status,
+        responseBody: respMap.get(status)?.body,
+        responseContentType: respMap.get(status)?.contentType,
+        requestBody: datatype?.requestBody,
+        requestContentType: datatype?.requestContentType,
+        replica: undefined
+      })));
+    }
   }
 
   private createEndpointDependencies(
     trafficDate: number,
     endpointInfoSet: Map<string, TEndpointInfo>,
-    dependOnMap:Map<string, Set<string>>,
-    dependByMap:Map<string, Set<string>>,
+    dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
   ): TEndpointDependency[] {
     /*
       Use BFS starting from each endpoint to find all the 'endpoints it depends on' and the 'endpoints that depend on it', 
@@ -357,7 +440,7 @@ export default class TrafficSimulator extends Simulator {
         }
       }
     } else if (totalRate > 100) {
-       // If the total rate exceeds 100, scale all rates so that the sum equals 100
+      // If the total rate exceeds 100, scale all rates so that the sum equals 100
       const scale = 100 / totalRate;
       statusRates.forEach(e => {
         e.rate = e.rate * scale;

@@ -10,6 +10,7 @@ import { CTaggedInterfaces } from "../classes/Cacheable/CTaggedInterfaces";
 import { CTaggedSwaggers } from "../classes/Cacheable/CTaggedSwaggers";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CUserDefinedLabel } from "../classes/Cacheable/CUserDefinedLabel";
+import { CSimulationYAML } from "../classes/Cacheable/CSimulationYAML";
 import { HistoricalData } from "../classes/HistoricalData";
 import { Traces } from "../classes/Traces";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
@@ -118,7 +119,7 @@ export default class Initializer {
       .setData(dependencies);
   }
 
-  async serverStartUp() {
+  async registerDataCaches() {
     Logger.info("Registering caches.");
     DataCache.getInstance().register([
       new CLabelMapping(),
@@ -132,7 +133,12 @@ export default class Initializer {
       new CLabeledEndpointDependencies(),
       new CUserDefinedLabel(),
       new CLookBackRealtimeData(),
+      new CSimulationYAML(),
     ]);
+  } 
+
+  async productionServerStartUp() {
+    await this.registerDataCaches();
 
     Logger.info("Loading data into cache.");
     await DataCache.getInstance().loadBaseData();
@@ -160,5 +166,9 @@ export default class Initializer {
     } else {
       Logger.info("Readonly mode enabled, skipping schedule registration.");
     }
+  }
+
+  async simulationServerStartUp() {
+    await this.registerDataCaches();
   }
 }
