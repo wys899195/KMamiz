@@ -9,6 +9,7 @@ import { CTaggedInterfaces } from "../classes/Cacheable/CTaggedInterfaces";
 import { CTaggedSwaggers } from "../classes/Cacheable/CTaggedSwaggers";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CUserDefinedLabel } from "../classes/Cacheable/CUserDefinedLabel";
+import { CSimulationYAML } from "../classes/Cacheable/CSimulationYAML";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
 import { HistoricalDataModel } from "../entities/schema/HistoricalDataSchema";
 import { TAggregatedData } from "../entities/TAggregatedData";
@@ -51,27 +52,11 @@ export default class ImportExportHandler {
       new CLabeledEndpointDependencies(),
       new CUserDefinedLabel(),
       new CLookBackRealtimeData(),
+      new CSimulationYAML(),
     ]);
     await MongoOperator.getInstance().clearDatabase();
   }
 
-  async clearOnlyLatestDependencyData() {
-    DataCache.getInstance().clearOnlyLatestDependency();
-    DataCache.getInstance().register([
-      // new CLabelMapping(),
-      // new CEndpointDataType(),
-      // new CCombinedRealtimeData(),
-       new CEndpointDependencies(),
-      // new CReplicas(),
-      // new CTaggedInterfaces(),
-      // new CTaggedSwaggers(),
-      // new CTaggedDiffData(),
-      new CLabeledEndpointDependencies(),
-      // new CUserDefinedLabel(),
-      // new CLookBackRealtimeData(),
-    ]);
-    await MongoOperator.getInstance().clearDatabaseOnlyLatestDependency();
-  }
 
   async importData(importData: [string, any][]) {
     if (!importData) return false;

@@ -140,17 +140,4 @@ export default class MongoOperator {
     
   }
 
-  async clearDatabaseOnlyLatestDependency() {
-    if (!GlobalSettings.EnableTestingEndpoints) return;
-    // await MongoOperator.getInstance().deleteAll(AggregatedDataModel);
-    // await MongoOperator.getInstance().deleteAll(CombinedRealtimeDataModel);
-    // await MongoOperator.getInstance().deleteAll(EndpointDataTypeModel);
-     await MongoOperator.getInstance().deleteAll(EndpointDependencyModel);
-    // await MongoOperator.getInstance().deleteAll(EndpointLabelModel);
-    // await MongoOperator.getInstance().deleteAll(HistoricalDataModel);
-    // await MongoOperator.getInstance().deleteAll(TaggedInterfaceModel);
-    // await MongoOperator.getInstance().deleteAll(TaggedSwaggerModel);
-    // await MongoOperator.getInstance().deleteAll(TaggedDiffDataModel);
-    
-  }
 }

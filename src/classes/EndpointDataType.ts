@@ -51,7 +51,7 @@ export default class EndpointDataType {
   removeDuplicateSchemas() {
     const schemaMap = new Map<string, TEndpointDataSchema>();
     this._endpointDataType.schemas.forEach((s) => {
-      const id = `${s.responseSchema || ""}\t${s.requestSchema || ""}`;
+      const id = `${s.status}\t${s.responseSchema || ""}\t${s.requestSchema || ""}`;
       schemaMap.set(id, s);
     });
     return new EndpointDataType({
@@ -130,41 +130,51 @@ export default class EndpointDataType {
         }, new Map<string, TEndpointDataSchema>());
     const existingMap = mapToMap(this._endpointDataType.schemas);
     const newMap = mapToMap(endpointData._endpointDataType.schemas);
-
     const combinedMap = new Map<string, TEndpointDataSchema>();
-    [...existingMap.entries()].forEach(([status, eSchema]) => {
+
+    const allStatuses = new Set([
+      ...existingMap.keys(),
+      ...newMap.keys()
+    ]);
+
+    allStatuses.forEach((status) => {
+      const eSchema = existingMap.get(status);
       const nSchema = newMap.get(status);
-      if (!nSchema) return;
-      const requestParams = (eSchema.requestParams || []).concat(
-        nSchema.requestParams || []
-      );
 
-      const requestSample = Utils.Merge(
-        eSchema.requestSample,
-        nSchema.requestSample
-      );
-      const responseSample = Utils.Merge(
-        eSchema.responseSample,
-        nSchema.responseSample
-      );
-
-      combinedMap.set(status, {
-        status,
-        time: new Date(),
-        requestParams: Utils.UniqueParams(requestParams),
-        requestSample,
-        responseSchema: responseSample
-          ? Utils.ObjectToInterfaceString(responseSample)
-          : undefined,
-        responseSample,
-        requestSchema: requestSample
-          ? Utils.ObjectToInterfaceString(requestSample)
-          : undefined,
-        requestContentType:
-          eSchema.requestContentType || nSchema.requestContentType,
-        responseContentType:
-          eSchema.responseContentType || nSchema.responseContentType,
-      });
+      if (eSchema && nSchema) {
+        const requestParams = (eSchema.requestParams || []).concat(
+          nSchema.requestParams || []
+        );
+  
+        const requestSample = Utils.Merge(
+          eSchema.requestSample,
+          nSchema.requestSample
+        );
+        const responseSample = Utils.Merge(
+          eSchema.responseSample,
+          nSchema.responseSample
+        );
+  
+        combinedMap.set(status, {
+          status,
+          time: new Date(),
+          requestParams: Utils.UniqueParams(requestParams),
+          requestSample,
+          responseSchema: responseSample
+            ? Utils.ObjectToInterfaceString(responseSample)
+            : undefined,
+          responseSample,
+          requestSchema: requestSample
+            ? Utils.ObjectToInterfaceString(requestSample)
+            : undefined,
+          requestContentType:
+            eSchema.requestContentType || nSchema.requestContentType,
+          responseContentType:
+            eSchema.responseContentType || nSchema.responseContentType,
+        });
+      } else if (nSchema) {
+        combinedMap.set(status, nSchema);
+      }
     });
     return new EndpointDataType({
       ...this._endpointDataType,

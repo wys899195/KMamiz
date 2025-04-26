@@ -87,6 +87,23 @@ export default class ServiceOperator {
     );
   }
 
+  postSimulationRetrieve(data: {
+    rlDataList: TCombinedRealtimeData[];
+    dependencies: TEndpointDependency[];
+    dataType: TEndpointDataType[];
+    replicaCount: TReplicaCount[];
+  }) {
+    const {rlDataList, dependencies, dataType, replicaCount } = data;
+
+
+    ServiceOperator.getInstance().simulateUpdateCache(
+      new CombinedRealtimeDataList(rlDataList),
+      new EndpointDependencies(dependencies),
+      dataType.map((dt) => new EndpointDataType(dt)),
+      replicaCount,
+    );
+  }
+
   private getDataForAggregate() {
     const combinedRealtimeData = DataCache.getInstance()
       .get<CCombinedRealtimeData>("CombinedRealtimeData")
@@ -265,6 +282,33 @@ export default class ServiceOperator {
       .then((r) =>
         DataCache.getInstance().get<CReplicas>("ReplicaCounts").setData(r)
       );
+
+    DataCache.getInstance()
+      .get<CEndpointDataType>("EndpointDataType")
+      .setData(dataType);
+
+    ServiceUtils.getInstance().updateLabel();
+    DataCache.getInstance()
+      .get<CLabeledEndpointDependencies>("LabeledEndpointDependencies")
+      .setData(dep);
+  }
+
+  private simulateUpdateCache(
+    data: CombinedRealtimeDataList,
+    dep: EndpointDependencies,
+    dataType: EndpointDataType[],
+    replicaCount:TReplicaCount[],
+  ) {
+    DataCache.getInstance()
+      .get<CCombinedRealtimeData>("CombinedRealtimeData")
+      .setData(data);
+    DataCache.getInstance()
+      .get<CEndpointDependencies>("EndpointDependencies")
+      .setData(dep);
+
+    DataCache.getInstance()
+      .get<CReplicas>("ReplicaCounts")
+      .setData(replicaCount);
 
     DataCache.getInstance()
       .get<CEndpointDataType>("EndpointDataType")

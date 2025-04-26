@@ -13,28 +13,33 @@ spec:
       serviceAccountName: kmamiz-reader
       containers:
         - name: kmamiz
-          image: "reg.stw.tw/kmamiz:latest"
+          image: "wys899195/kmamiz:latest"
           ports:
             - containerPort: 3000
+          envFrom:
+            # kmamiz-global-env
+            - configMapRef:
+                name: kmamiz-global-env
           env:
-            - name: PORT
-              value: "3000"
             - name: SERVICE_PORT # this needs to match port set in Service
               value: "80"
             - name: MONGODB_URI
               value: "{your-mongodb-uri}"
-            - name: ZIPKIN_URL
-              value: "http://zipkin.istio-system:9411"
-            - name: LOG_LEVEL
-              value: "info"
-            - name: IS_RUNNING_IN_K8S
-              value: "true"
-            - name: ENVOY_LOG_LEVEL
-              value: "warning" # accept: info | warning | error
-            - name: READ_ONLY_MODE
+            - name: SIMULATOR_MODE
               value: "false"
-            - name: ENABLE_TESTING_ENDPOINTS
-              value: "false"
+
+            # admin settings
+            - name: INACTIVE_ENDPOINT_THRESHOLD # The time threshold for marking a service or endpoints inactive, which affects the DependencyGraph pages.
+              value: ""     # 1. Format: "XdYh" (e.g., "3d4h", "10h"), where X = days,Y = hours
+                            # 
+                            # 2. If you don't want to set it, you can leave it as an empty string, and it will be treated as 0 seconds, meaning it will not affect the dependency graph's display.
+            - name: DEPRECATED_ENDPOINT_THRESHOLD # The time threshold for marking a service or endpoints deprecated, which affects the DependencyGraph and Insight pages.
+              value: ""     # 1. Format: "XdYh" (e.g., "3d4h", "10h"), where X = days,Y = hours
+                            #    
+                            # 2. If you don't want to set it, you can leave it as an empty string, and it will be treated as 0 seconds, meaning it will not affect the dependency graph's display.
+                            #
+                            # 3.(IMPORTANT!) If the value is set, it must be greater than the value of INACTIVE_ENDPOINT_THRESHOLD.
+                            #   Otherwise, the 'inactive' nodes will not be displayed in the dependency graph, because the 'deprecated' threshold would be considered before the 'inactive' threshold.
   selector:
     matchLabels:
       app: kmamiz

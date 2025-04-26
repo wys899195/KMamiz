@@ -22,6 +22,7 @@ type Settings = {
   ServeOnly: boolean;
   InactiveEndpointThreshold: string;
   DeprecatedEndpointThreshold: string;
+  SimulatorMode: boolean;
 };
 
 const {
@@ -47,6 +48,7 @@ const {
   SERVE_ONLY,
   INACTIVE_ENDPOINT_THRESHOLD,
   DEPRECATED_ENDPOINT_THRESHOLD,
+  SIMULATOR_MODE,
 } = process.env;
 
 const GlobalSettings: Settings = {
@@ -75,6 +77,7 @@ const GlobalSettings: Settings = {
   ServeOnly: SERVE_ONLY === "true",
   InactiveEndpointThreshold: INACTIVE_ENDPOINT_THRESHOLD || "",
   DeprecatedEndpointThreshold: DEPRECATED_ENDPOINT_THRESHOLD || "",
+  SimulatorMode: SIMULATOR_MODE === "true",
 };
 
 if (

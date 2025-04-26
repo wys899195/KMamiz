@@ -3,7 +3,6 @@ import { CLabeledEndpointDependencies } from "../classes/Cacheable/CLabeledEndpo
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CLabelMapping } from "../classes/Cacheable/CLabelMapping";
 import EndpointDataType from "../classes/EndpointDataType";
-import DependencyGraphSimulator from "../classes/DependencyGraphSimulator";
 import { EndpointDependencies } from "../classes/EndpointDependencies";
 import { TLineChartData } from "../entities/TLineChartData";
 import { TServiceStatistics } from "../entities/TStatistics";
@@ -17,6 +16,7 @@ import DataCache from "../services/DataCache";
 import ServiceUtils from "../services/ServiceUtils";
 import { TRequestInfoChartData } from "../entities/TRequestInfoChartData";
 import Logger from "../utils/Logger";
+import GlobalSettings from "../../src/GlobalSettings";
 
 export default class GraphService extends IRequestHandler {
   constructor() {
@@ -74,67 +74,106 @@ export default class GraphService extends IRequestHandler {
         req = req; // to aviod compile error: 'req' is declared but its value is never read"
         res.json(this.getTagsOfDiffData());
     });
-    this.addRoute(
-      "post", 
-      "/diffData/tags", 
-      async (req, res) => {
-      const { tag } = req.body as {
-        tag: string;
-      };
-      if (!tag) res.sendStatus(400);
-      else {
-        const graphData = await this.getDependencyGraph();
-        const cohesionData = await this.getServiceCohesion();
-        const couplingData = await this.getServiceCoupling();
-        const instabilityData = await this.getServiceInstability();
-        if (!graphData || !cohesionData || ! couplingData || !instabilityData){
-          res.sendStatus(500);
-        } else {
-          this.addTaggedDiffData({
-            tag: tag,
-            graphData: graphData,
-            cohesionData: cohesionData,
-            couplingData: couplingData,
-            instabilityData: instabilityData
-          });
-          res.sendStatus(200);
-        }
+    
+    if (!GlobalSettings.SimulatorMode) {
+      this.addRoute(
+        "post",
+        "/diffData/tags",
+        async (req, res) => {
+          const { tag } = req.body as {
+            tag: string;
+          };
+          if (!tag) res.sendStatus(400);
+          else {
+            const graphData = await this.getDependencyGraph();
+            const cohesionData = this.getServiceCohesion();
+            const couplingData = this.getServiceCoupling();
+            const instabilityData = this.getServiceInstability();
+            console.log("graphData ",JSON.stringify(graphData ,null,2));
+            console.log("cohesionData ",JSON.stringify(cohesionData ,null,2));
+            console.log("couplingData ",JSON.stringify(couplingData ,null,2));
+            console.log("instabilityData ",JSON.stringify(instabilityData ,null,2));
+            if (!graphData || !cohesionData || !couplingData || !instabilityData) {
+              res.sendStatus(500);
+            } else {
+              this.addTaggedDiffData({
+                tag: tag,
+                graphData: graphData,
+                cohesionData: cohesionData,
+                couplingData: couplingData,
+                instabilityData: instabilityData
+              });
+              res.sendStatus(200);
+            }
 
-      }
-    });
+          }
+        });
+    } else {
+      this.addRoute(
+        "post",
+        "/diffData/tags",
+        async (req, res) => {
+          const { tag } = req.body as {
+            tag: string;
+          };
+          if (!tag) res.sendStatus(400);
+          else {
+            const graphData = await this.getDependencyGraph();
+            const cohesionData = this.getServiceCohesion();
+            const couplingData = this.getServiceCoupling();
+            const instabilityData = this.getServiceInstability();
+            console.log("graphData ",JSON.stringify(graphData ,null,2));
+            console.log("cohesionData ",JSON.stringify(cohesionData ,null,2));
+            console.log("couplingData ",JSON.stringify(couplingData ,null,2));
+            console.log("instabilityData ",JSON.stringify(instabilityData ,null,2));
+            if (!graphData || !cohesionData || !couplingData || !instabilityData) {
+              res.sendStatus(500);
+            } else {
+              // the kmamiz service which in production mode will append a diffData
+              try {
+                const resFromProductionMode = await fetch("http://kmamiz:8080/api/v1/graph/diffData/tagged/tags", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    tag: `(Simulator) ${tag}`,
+                    graphData: graphData,
+                    cohesionData: cohesionData,
+                    couplingData: couplingData,
+                    instabilityData: instabilityData
+                  }),
+                });
+                if (!resFromProductionMode.ok) {
+                  const errorText = await resFromProductionMode.text();
+                  return res.status(500).json({ message: errorText });
+                } else {
+                  res.sendStatus(200);
+                }
+              } catch (err) {
+                console.error("Error calling kmamiz:", err);
+                res.sendStatus(500);
+              }
+            }
+          }
+        });
+    }
 
-    this.addRoute(
-      "post", 
-      "/diffData/simulate", 
-      async (req, res) => {
-      const graph = req.body as TGraphData;
-      if (!graph) res.sendStatus(400);
-      else {
-        const graphData = graph;
-        Logger.info("hey heys", JSON.stringify(graphData));
-        const cohesionData = await this.getServiceCohesion(); // TODO
-        const couplingData = await this.getServiceCoupling(); // TODO
-        const instabilityData = await this.getServiceInstability(); // TODO
-        if (!graphData || !cohesionData || ! couplingData || !instabilityData){
-          res.sendStatus(500);
-        } else {
-          const now = new Date();
-          const timestamp = now.getFullYear().toString() +
-                            String(now.getMonth() + 1).padStart(2, '0') +
-                            String(now.getDate()).padStart(2, '0') +
-                            String(now.getHours()).padStart(2, '0') +
-                            String(now.getMinutes()).padStart(2, '0');
-          this.addTaggedDiffData({
-            tag: timestamp,// TODO
-            graphData: graphData,
-            cohesionData: cohesionData,
-            couplingData: couplingData,
-            instabilityData: instabilityData
-          });
-          res.sendStatus(200);
-        }
-      }
-    });
+
+    if (!GlobalSettings.SimulatorMode) {
+      this.addRoute(
+        "post", 
+        "/diffData/tagged/tags", 
+        async (req, res) => {
+          const tagged = req.body as TTaggedDiffData;
+          if (!tagged) res.sendStatus(400);
+          else {
+            this.addTaggedDiffData(tagged);
+            res.sendStatus(200);
+          }
+      });
+    }
+
     this.addRoute(
       "delete", 
       "/diffData/tags",
@@ -262,76 +301,33 @@ export default class GraphService extends IRequestHandler {
       );
     });
 
-    this.addRoute(
-      "post",
-      "/simulate/yamlToDependency",
-      async (req, res) => {
-        const { yamlData } = req.body as { yamlData: string };
-        const simulator = new DependencyGraphSimulator();
-        const decodedYamlData = yamlData ? decodeURIComponent(yamlData) : '';
-        const validationResult = simulator.isValidYamlFormatForDependencySimulation(decodedYamlData);
-        if (!validationResult.valid) {
-          return res.status(400).json({ message: validationResult.message });
-        }
-        const graph = await simulator.yamlToGraphData(decodedYamlData);
 
-        if (graph) {
-          res.json(graph);
-        } else {
-          res.sendStatus(404);
-        }
-      }
-    );
-
-    this.addRoute(
-      "post",
-      "/simulate/endpointDependencyToYaml",
-      async (req, res) => {
-        const endpointDependencyGraph = req.body as TGraphData;
-        if (!endpointDependencyGraph) {
-          res.json('');
-        }
-        const simulator = new DependencyGraphSimulator();
-        const yamlString = await simulator.graphDataToYaml(endpointDependencyGraph);
-        res.json(yamlString);
-
-      }
-    );
   }
 
   async getDependencyGraph(namespace?: string) {
+    const rootNode: TGraphData = {
+      nodes: [
+        {
+          id: "null",
+          group: "null",
+          name: "external requests",
+          dependencies: [],
+          linkInBetween: [],
+          usageStatus: "Active"
+        }
+      ],
+      links: []
+    }
     return DataCache.getInstance()
       .get<CLabeledEndpointDependencies>("LabeledEndpointDependencies")
       .getData(namespace)
-      ?.toGraphData();
+      ?.toGraphData() || rootNode;
   }
 
   async getServiceDependencyGraph(namespace?: string) {
     const endpointGraph = await this.getDependencyGraph(namespace);
     if (!endpointGraph) return endpointGraph;
-
-    const linkSet = new Set<string>();
-    endpointGraph.links.forEach((l) => {
-      const source = l.source.split("\t").slice(0, 2).join("\t");
-      const target = l.target.split("\t").slice(0, 2).join("\t");
-      linkSet.add(`${source}\n${target}`);
-    });
-
-    const links = [...linkSet]
-      .map((l) => l.split("\n"))
-      .map(([source, target]) => ({ source, target }));
-
-    const nodes = endpointGraph.nodes.filter((n) => n.id === n.group);
-    nodes.forEach((n) => {
-      n.linkInBetween = links.filter((l) => l.source === n.id);
-      n.dependencies = n.linkInBetween.map((l) => l.target);
-    });
-
-    const graph: TGraphData = {
-      nodes,
-      links,
-    };
-    return graph;
+    return this.toServiceDependencyGraph(endpointGraph);
   }
 
   async getTaggedDependencyGraph(tag?: string) {
@@ -346,28 +342,7 @@ export default class GraphService extends IRequestHandler {
   async getTaggedServiceDependencyGraph(tag?: string) {
     const endpointGraph = await this.getTaggedDependencyGraph(tag);
     if (!endpointGraph) return endpointGraph;
-    const linkSet = new Set<string>();
-    endpointGraph.links.forEach((l) => {
-      const source = l.source.split("\t").slice(0, 2).join("\t");
-      const target = l.target.split("\t").slice(0, 2).join("\t");
-      linkSet.add(`${source}\n${target}`);
-    });
-
-    const links = [...linkSet]
-      .map((l) => l.split("\n"))
-      .map(([source, target]) => ({ source, target }));
-
-    const nodes = endpointGraph.nodes.filter((n) => n.id === n.group);
-    nodes.forEach((n) => {
-      n.linkInBetween = links.filter((l) => l.source === n.id);
-      n.dependencies = n.linkInBetween.map((l) => l.target);
-    });
-
-    const graph: TGraphData = {
-      nodes,
-      links,
-    };
-    return graph;
+    return this.toServiceDependencyGraph(endpointGraph);
   }
 
   getTagsOfDiffData():{ tag: string; time: number }[] {
@@ -386,6 +361,31 @@ export default class GraphService extends IRequestHandler {
     DataCache.getInstance()
       .get<CTaggedDiffData>("TaggedDiffDatas")
       .delete(tag);
+  }
+
+  private toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
+    const linkSet = new Set<string>();
+    endpointGraph.links.forEach((l) => {
+      const source = l.source.split("\t").slice(0, 2).join("\t");
+      const target = l.target.split("\t").slice(0, 2).join("\t");
+      linkSet.add(`${source}\n${target}`);
+    });
+
+    const links = [...linkSet]
+      .map((l) => l.split("\n"))
+      .map(([source, target]) => ({ source, target }));
+
+    const nodes = endpointGraph.nodes.filter((n) => n.id === n.group);
+    nodes.forEach((n) => {
+      n.linkInBetween = links.filter((l) => l.source === n.id);
+      n.dependencies = n.linkInBetween.map((l) => l.target);
+    });
+
+    const serviceGraph: TGraphData = {
+      nodes,
+      links,
+    };
+    return serviceGraph;
   }
 
   async getDirectServiceChord(namespace?: string) {
