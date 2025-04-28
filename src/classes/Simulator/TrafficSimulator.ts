@@ -36,7 +36,7 @@ export default class TrafficSimulator extends Simulator {
     dataType: TEndpointDataType[]
     replicaCountList: TReplicaCount[];
   } {
-    const { validationErrorMessage, parsedYAML } = this.validateYAMLFormat(yamlString);
+    const { validationErrorMessage, parsedYAML } = this.validateAndParseYAML(yamlString);
 
     if (!parsedYAML) {
       return {

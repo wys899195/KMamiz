@@ -15,7 +15,7 @@ export default class DependencyGraphSimulator extends Simulator {
     validationErrorMessage: string
     graph: TGraphData,
   } {
-    const { validationErrorMessage, parsedYAML } = this.validateYAMLFormat(yamlString);
+    const { validationErrorMessage, parsedYAML } = this.validateAndParseYAML(yamlString);
     const rootNode: TNode = {
       id: "null",
       group: "null",
