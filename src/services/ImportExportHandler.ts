@@ -18,11 +18,16 @@ import DataCache from "./DataCache";
 import DispatchStorage from "./DispatchStorage";
 import MongoOperator from "./MongoOperator";
 import ServiceUtils from "./ServiceUtils";
+import KubernetesService from "./KubernetesService";
+import { tgz } from "compressing";
+import { Readable } from 'stream';
+import Logger from "../utils/Logger";
+
 
 export default class ImportExportHandler {
   private static instance?: ImportExportHandler;
   static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() {}
+  private constructor() { }
 
   async exportData() {
     const caches = DataCache.getInstance().export();
@@ -89,6 +94,68 @@ export default class ImportExportHandler {
     );
 
     await DispatchStorage.getInstance().syncAll();
+    ServiceUtils.getInstance().updateLabel();
+    return true;
+  }
+
+  async cloneDataFromProductionService() {
+    const productionServiceBaseURL = await KubernetesService.getInstance().getProductionServiceBaseURL();
+    const res = await fetch(`${productionServiceBaseURL}/api/v1/data/export`, {
+      method: "GET",
+      headers: {
+        'Accept': 'application/x-tar+gzip',
+      },
+    });
+    if (!res.ok) {
+      return;
+    }
+    try {
+      const buffer = await res.arrayBuffer();
+      const chunks: any[] = [];
+      const stream = new tgz.UncompressStream();
+      stream.on("entry", (_, s) => {
+        s.on("data", (chunk: any) => chunks.push(chunk));
+        s.on("end", async () => {
+          const caches = JSON.parse(
+            Buffer.concat(chunks).toString("utf8")
+          ) as [string, any][];
+          await ImportExportHandler.getInstance().importDataFromProductionEnvironment(
+            caches
+          );
+          return;
+        });
+      });
+      const readableStream = new Readable({
+        read() {
+          this.push(Buffer.from(buffer));
+          this.push(null);
+        },
+      });
+      readableStream.pipe(stream);
+    } catch (ex) {
+      Logger.error(`Failed to clone data from kmamiz production service, simulator data will be empty.`);
+      Logger.verbose("", ex);
+      return;
+    }
+  }
+
+  async importDataFromProductionEnvironment(importData: [string, any][]) {
+    // HistoricalData and Aggregate data will not be imported
+    if (!importData) return false;
+
+    await MongoOperator.getInstance().clearDatabase();
+
+    // fix Date being converted into string
+    const dataType = importData.find(
+      ([name]) => name === "EndpointDataType"
+    )![1];
+    dataType.forEach((dt: any) =>
+      dt.schemas.forEach((s: any) => (s.time = new Date(s.time)))
+    );
+
+    DataCache.getInstance().import(importData);
+    DataCache.getInstance().register([new CLookBackRealtimeData()]);
+
     ServiceUtils.getInstance().updateLabel();
     return true;
   }

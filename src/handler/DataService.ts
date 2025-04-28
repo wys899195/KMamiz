@@ -59,6 +59,16 @@ export default class DataService extends IRequestHandler {
       await DispatchStorage.getInstance().syncAll();
       res.sendStatus(200);
     });
+    this.addRoute("get", "/export", async (_, res) => {
+      res.contentType("application/tar+gzip");
+      const json = await ImportExportHandler.getInstance().exportData();
+      const stream = new tgz.Stream();
+      stream.addEntry(Buffer.from(json, "utf8"), {
+        relativePath: "KMamiz.cache.json",
+      });
+      stream.on("end", () => res.end());
+      stream.pipe(res);
+    });
 
     if (GlobalSettings.EnableTestingEndpoints) {
       this.registerTestingEndpoints();
@@ -134,16 +144,6 @@ export default class DataService extends IRequestHandler {
     this.addRoute("delete", "/clear", async (_, res) => {
       await ImportExportHandler.getInstance().clearData();
       res.sendStatus(200);
-    });
-    this.addRoute("get", "/export", async (_, res) => {
-      res.contentType("application/tar+gzip");
-      const json = await ImportExportHandler.getInstance().exportData();
-      const stream = new tgz.Stream();
-      stream.addEntry(Buffer.from(json, "utf8"), {
-        relativePath: "KMamiz.cache.json",
-      });
-      stream.on("end", () => res.end());
-      stream.pipe(res);
     });
     this.addRoute("post", "/import", async (req, res) => {
       try {
