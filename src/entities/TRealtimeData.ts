@@ -8,7 +8,7 @@ export type TRealtimeData = {
   service: string;
   namespace: string;
   version: string;
-  latency: number;
+  latency: number; // milliseconds
   status: string;
   responseBody?: string;
   responseContentType?: string;
