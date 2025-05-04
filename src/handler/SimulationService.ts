@@ -1,6 +1,6 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import DependencyGraphSimulator from "../classes/Simulator/DependencyGraphSimulator";
-import TrafficSimulator from "../classes/Simulator/TrafficSimulator";
+import StaticSimulator from "../classes/Simulator/StaticSimulator";
 import { TGraphData } from "../entities/TGraphData";
 import ServiceOperator from "../services/ServiceOperator";
 
@@ -10,9 +10,9 @@ export default class SimulationService extends IRequestHandler {
 
     this.addRoute(
       "post",
-      "/yamlToEndpointDependency",
+      "/yamlToDependency",
       async (req, res) => {
-        const { yamlData } = req.body as { yamlData: string };
+        const { yamlData, showEndpoint } = req.body as { yamlData: string; showEndpoint: boolean };
         const simulator = DependencyGraphSimulator.getInstance();
         const decodedYAMLData = yamlData ? decodeURIComponent(yamlData) : '';
         try {
@@ -22,7 +22,12 @@ export default class SimulationService extends IRequestHandler {
           const hasNoYamlFormatError = !result.validationErrorMessage; 
   
           if (isEmptyYAML || hasNoYamlFormatError){
-            return res.status(200).json({ graph: result.graph, message: result.validationErrorMessage });
+            if (showEndpoint) {
+              return res.status(200).json({ graph: result.graph, message: result.validationErrorMessage });
+            } else { //service graph
+              return res.status(200).json({ graph: this.toServiceDependencyGraph(result.graph), message: result.validationErrorMessage });
+            }
+            
           } else {
             return res.status(400).json({ graph: result.graph, message: result.validationErrorMessage });
           }
@@ -52,7 +57,7 @@ export default class SimulationService extends IRequestHandler {
       "/retrieveDataByYAML",
       async (req, res) => {
         const { yamlData } = req.body as { yamlData: string };
-        const simulator = TrafficSimulator.getInstance();
+        const simulator = StaticSimulator.getInstance();
         const decodedYAMLData = yamlData ? decodeURIComponent(yamlData) : '';
         const isEmptyYAML = !decodedYAMLData.trim();
         if (isEmptyYAML) {
@@ -60,7 +65,7 @@ export default class SimulationService extends IRequestHandler {
         } else {
           try {
             //retrieve data from yaml
-            const result = simulator.yamlToSimulationRetrieveData(decodedYAMLData);
+            const result = simulator.yamlToSimulationStaticData(decodedYAMLData);
 
             if (result.validationErrorMessage) {
               return res.status(400).json({ message: result.validationErrorMessage });
@@ -75,7 +80,7 @@ export default class SimulationService extends IRequestHandler {
               //update to cache and create historical and aggregatedData
               try {
                 ServiceOperator.getInstance().postSimulationRetrieve({
-                  rlDataList: result.rlDataList,
+                  rlDataList: [],
                   dependencies: result.endpointDependencies,
                   dataType: result.dataType,
                   replicaCount: result.replicaCountList
@@ -95,5 +100,29 @@ export default class SimulationService extends IRequestHandler {
     );
   }
 
+  private toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
+    const linkSet = new Set<string>();
+    endpointGraph.links.forEach((l) => {
+      const source = l.source.split("\t").slice(0, 2).join("\t");
+      const target = l.target.split("\t").slice(0, 2).join("\t");
+      linkSet.add(`${source}\n${target}`);
+    });
+
+    const links = [...linkSet]
+      .map((l) => l.split("\n"))
+      .map(([source, target]) => ({ source, target }));
+
+    const nodes = endpointGraph.nodes.filter((n) => n.id === n.group);
+    nodes.forEach((n) => {
+      n.linkInBetween = links.filter((l) => l.source === n.id);
+      n.dependencies = n.linkInBetween.map((l) => l.target);
+    });
+
+    const serviceGraph: TGraphData = {
+      nodes,
+      links,
+    };
+    return serviceGraph;
+  }
 
 }

@@ -1,9 +1,11 @@
+import { requestType } from "./TRequestType";
+
 import { z } from "zod";
 
 export const simulationResponseBodySchema = z.object({
   status: z.number().int().refine(
     (val) => val >= 100 && val <= 599,
-    { message: "Invalid status code. Must be 100~599." }
+    { message: "Invalid status. It must be between 100 and 599." }
   ).transform((val) => val.toString()),
   responseContentType: z.string(),
   responseBody: z.string(),
@@ -16,14 +18,14 @@ export const simulationEndpointDatatypeSchema = z.object({
 }).strict();
 
 export const simulationEndpointInfoSchema = z.object({
-  path: z.string(),
-  method: z.string(),
+  path: z.string().min(1, { message: "path cannot not be empty." }),
+  method: z.enum(requestType),
 }).strict();
 
 export const simulationEndpointSchema = z.object({
   endpointUniqueId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string()
+    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
   ),
   endpointInfo: simulationEndpointInfoSchema,
   datatype: simulationEndpointDatatypeSchema.optional(),
@@ -32,17 +34,17 @@ export const simulationEndpointSchema = z.object({
 export const simulationServiceVersionSchema = z.object({
   version: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string()
+    z.string().min(1, { message: "service name cannot be empty." })
   ),
   replica: z.number()
     .int({ message: "replica must be an integer." })
-    .min(1, { message: "replica (the number of service instances) must be at least 1 to simulate traffic injection." })
+    .min(1, { message: "replica (the number of service instances) must be at least 1 to simulate injection." })
     .optional(),
   endpoints: z.array(simulationEndpointSchema),
 }).strict();
 
 export const simulationServiceSchema = z.object({
-  service: z.string(),
+  serviceName: z.string().min(1, { message: "service name cannot be empty." }),
   versions: z.array(simulationServiceVersionSchema),
 }).strict();
 
@@ -51,49 +53,58 @@ export const simulationNamespaceSchema = z.object({
   services: z.array(simulationServiceSchema),
 }).strict();
 
+export const simulationDependOnSchema = z.object({
+  endpointUniqueId: z.preprocess(
+    (val) => (typeof val === "number" ? val.toString() : val),
+    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
+  ),
+  callRate: z.number().refine(
+    (val) => val >= 0 && val <= 100,
+    { message: "Invalid errorRate. It must be between 0 and 100." }
+  ).optional(),
+});
+
+
 export const simulationEndpointDependencySchema = z.object({
   endpointUniqueId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string()
+    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
   ),
-  dependOn: z.array(z.string()),
-}).strict();
+  dependOn: z.array(simulationDependOnSchema),
+})
+  .strict();
 
-export const simulationStatusRateSchema = z.object({
-  status: z.number().int().refine(
-    (val) => val >= 100 && val <= 599,
-    { message: "Invalid status code. Must be 100~599." }
-  ).transform((val) => val.toString()), 
-  rate: z.number().min(0).max(100),
-}).strict();
 
-export const simulationTrafficInfoSchema = z.object({
+export const simulationEndpointMetricSchema = z.object({
   endpointUniqueId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string()
+    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
   ),
+  latencyMs: z.number().min(0, { message: "latencyMs must be zero or greater." }),
+  errorRate: z.number().refine(
+    (val) => val >= 0 && val <= 100,
+    { message: "Invalid errorRate. It must be between 0 and 100." }
+  ).optional(),
   requestCount: z.number()
     .int({ message: "requestCount must be an integer." })
-    .min(0, { message: "requestCount cannot be negative." }),
-  latency: z.number().min(0, { message: "latency must be zero or greater." }),
-  statusRate: z.array(simulationStatusRateSchema).optional(),
+    .min(0, { message: "requestCount cannot be negative." }).optional(),
 }).strict();
 
 export const simulationYAMLSchema = z.object({
   endpointsInfo: z.array(simulationNamespaceSchema),
   endpointDependencies: z.array(simulationEndpointDependencySchema),
-  trafficsInfo: z.array(simulationTrafficInfoSchema).optional(),
+  endpointMetrics: z.array(simulationEndpointMetricSchema).optional(),
 }).strict();
 
-export type TSimulationResponseBody       = z.infer<typeof simulationResponseBodySchema>;
-export type TSimulationEndpointDatatype   = z.infer<typeof simulationEndpointDatatypeSchema>;
-export type TSimulationEndpointInfo       = z.infer<typeof simulationEndpointInfoSchema>;
-export type TSimulationEndpoint           = z.infer<typeof simulationEndpointSchema>;
-export type TSimulationServiceVersion     = z.infer<typeof simulationServiceVersionSchema>;
-export type TSimulationService            = z.infer<typeof simulationServiceSchema>;
-export type TSimulationNamespace          = z.infer<typeof simulationNamespaceSchema>;
+export type TSimulationResponseBody = z.infer<typeof simulationResponseBodySchema>;
+export type TSimulationEndpointDatatype = z.infer<typeof simulationEndpointDatatypeSchema>;
+export type TSimulationEndpointInfo = z.infer<typeof simulationEndpointInfoSchema>;
+export type TSimulationEndpoint = z.infer<typeof simulationEndpointSchema>;
+export type TSimulationServiceVersion = z.infer<typeof simulationServiceVersionSchema>;
+export type TSimulationService = z.infer<typeof simulationServiceSchema>;
+export type TSimulationNamespace = z.infer<typeof simulationNamespaceSchema>;
+export type TSimulationDependOn = z.infer<typeof simulationDependOnSchema>;
 export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
-export type TSimulationStatusRate         = z.infer<typeof simulationStatusRateSchema>;
-export type TSimulationTrafficInfo        = z.infer<typeof simulationTrafficInfoSchema>;
-export type TSimulationYAML               = z.infer<typeof simulationYAMLSchema>;
+export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
+export type TSimulationYAML = z.infer<typeof simulationYAMLSchema>;
 

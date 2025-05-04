@@ -1,11 +1,17 @@
 import yaml from "js-yaml";
 import Simulator from './Simulator';
-import { TGraphData, TNode, TLink } from "../../entities/TGraphData";
+import { TGraphData } from "../../entities/TGraphData";
 import {
   TSimulationService,
   TSimulationYAML,
   TSimulationEndpoint,
+  TSimulationDependOn,
+  TSimulationEndpointDependency,
+  TSimulationNamespace,
 } from "../../entities/TSimulationYAML";
+import {TRequestType, TRequestTypeUpper} from '../../entities/TRequestType'
+import {TEndpointDependency, TEndpointInfo } from "../../entities/TEndpointDependency";
+import { EndpointDependencies } from "../EndpointDependencies";
 
 export default class DependencyGraphSimulator extends Simulator {
   private static instance?: DependencyGraphSimulator;
@@ -16,121 +22,23 @@ export default class DependencyGraphSimulator extends Simulator {
     graph: TGraphData,
   } {
     const { validationErrorMessage, parsedYAML } = this.validateAndParseYAML(yamlString);
-    const rootNode: TNode = {
-      id: "null",
-      group: "null",
-      name: "external requestsS",
-      dependencies: [],
-      linkInBetween: [],
-      usageStatus: "Active",
-    };
 
     if (!parsedYAML) {
       return {
         validationErrorMessage,
-        graph: {
-          nodes: [rootNode],
-          links: []
-        },
+        graph: new EndpointDependencies([]).toGraphData(), // graph only has external node
+      };
+    } else {
+      const endpointDependencies = this.parsedYamlToEndpointDependency(parsedYAML)
+      console.log("endpointDependencies");
+      console.log(JSON.stringify(endpointDependencies,null,2))
+      return {
+        validationErrorMessage,
+        graph: new EndpointDependencies(endpointDependencies).toGraphData(),
       };
     }
-    const nodes: TNode[] = [];
-    const links: TLink[] = [];
-    const existLinks = new Set<string>();
-    const existLabels = new Set<string>();
-    const endpointUniqueIdMap: { [key: string]: string } = {};
-    const dependedByMap: Map<string, string[]> = new Map();
-
-    // root node (external)
-    nodes.push(rootNode);
-
-    // create endpoint ID mapping and initialize dependedByMap
-    parsedYAML.endpointsInfo.forEach((ns) => {
-      ns.services.forEach((svc) => {
-        const serviceId = `${svc.service}\t${ns.namespace}`;
-        svc.versions.forEach((v) => {
-          v.endpoints.forEach((ep) => {
-            const endpointId = `${serviceId}\t${v.version}\t${ep.endpointInfo.method.toUpperCase()}\t${ep.endpointInfo.path}`;
-            endpointUniqueIdMap[String(ep.endpointUniqueId)] = endpointId;
-            dependedByMap.set(endpointId, []);
-          });
-        });
-      });
-    });
-
-    // create nodes and service-endpoint links
-    parsedYAML.endpointsInfo.forEach((ns) => {
-      ns.services.forEach((svc) => {
-        const serviceId = `${svc.service}\t${ns.namespace}`;
-        nodes.push({
-          id: serviceId,
-          group: serviceId,
-          name: serviceId.replace("\t", "."),
-          dependencies: [],
-          linkInBetween: [],
-          usageStatus: "Active",
-        });
-
-        svc.versions.forEach((v) => {
-          v.endpoints.forEach((ep) => {
-            const endpointId = `${serviceId}\t${v.version}\t${ep.endpointInfo.method.toUpperCase()}\t${ep.endpointInfo.path}`;
-            const endpointName = `(${v.version}) ${ep.endpointInfo.method.toUpperCase()} ${ep.endpointInfo.path}`;
-
-            if (!existLabels.has(endpointId)) {
-              nodes.push({
-                id: endpointId,
-                group: serviceId,
-                name: endpointName,
-                dependencies: [],
-                linkInBetween: [],
-                usageStatus: "Active",
-              });
-              existLabels.add(endpointId);
-            }
-
-            if (!existLinks.has(`${serviceId}\t${endpointId}`)) {
-              links.push({ source: serviceId, target: endpointId });
-              existLinks.add(`${serviceId}\t${endpointId}`);
-            }
-          });
-        });
-      });
-    });
-
-    // handle endpointDependencies to create endpoint-endpoint links
-    parsedYAML.endpointDependencies.forEach((dep) => {
-      const fromId = endpointUniqueIdMap[String(dep.endpointUniqueId)];
-      if (!fromId) return;
-
-      dep.dependOn.forEach((targetUniqueId) => {
-        const toId = endpointUniqueIdMap[targetUniqueId];
-        if (toId) {
-          if (!existLinks.has(`${fromId}\t${toId}`)) {
-            links.push({ source: fromId, target: toId });
-            existLinks.add(`${fromId}\t${toId}`);
-          }
-          dependedByMap.get(toId)?.push(fromId);
-        }
-      });
-    });
-
-    // link from external root node if the endpoint is not depended on by anyone
-    dependedByMap.forEach((dependedBy, endpointId) => {
-      if (dependedBy.length === 0) {
-        if (!existLinks.has(`null\t${endpointId}`)) {
-          links.push({ source: "null", target: endpointId });
-          existLinks.add(`null\t${endpointId}`);
-        }
-      }
-    });
-
-    const graph = { nodes, links };
-    return {
-      validationErrorMessage,
-      graph,
-    };
   }
-
+  
   graphDataToYAML(graph: TGraphData): string {
     const yamlObj: TSimulationYAML = { endpointsInfo: [], endpointDependencies: [] };
 
@@ -166,7 +74,7 @@ export default class DependencyGraphSimulator extends Simulator {
       }
 
       // create service object
-      const serviceObj: TSimulationService = { service: serviceName, versions: [] };
+      const serviceObj: TSimulationService = { serviceName: serviceName, versions: [] };
       nsObj.services.push(serviceObj);
 
       // get all endpoint nodes under this service
@@ -182,7 +90,7 @@ export default class DependencyGraphSimulator extends Simulator {
           endpointUniqueId: newEndpointId,
           endpointInfo: {
             path: decodeURIComponent(path),
-            method,
+            method: method as TRequestType,
           },
         };
 
@@ -198,7 +106,7 @@ export default class DependencyGraphSimulator extends Simulator {
 
 
     // build endpointDependencies
-    const dependencyMap = new Map<string, string[]>();
+    const dependencyMap = new Map<string, TSimulationDependOn[]>();
     graph.links.forEach((link) => {
       const sourceId = endpointUniqueIdMap.get(link.source);
       const targetId = endpointUniqueIdMap.get(link.target);
@@ -208,7 +116,9 @@ export default class DependencyGraphSimulator extends Simulator {
         dependencyMap.set(sourceId, []);
       }
 
-      dependencyMap.get(sourceId)!.push(targetId);
+      dependencyMap.get(sourceId)!.push({
+        endpointUniqueId: targetId
+      });
     });
 
     dependencyMap.forEach((dependOn, endpointUniqueId) => {
@@ -219,5 +129,190 @@ export default class DependencyGraphSimulator extends Simulator {
 
   }
 
-}
+  buildDependencyMaps(dependencies?: TSimulationEndpointDependency[]): {
+    dependOnMap: Map<string, Set<string>>;
+    dependByMap: Map<string, Set<string>>;
+  } {
+    const dependOnMap = new Map<string, Set<string>>();
+    const dependByMap = new Map<string, Set<string>>();
 
+    dependencies?.forEach(dep => {
+      const from = dep.endpointUniqueId;
+      const toList = dep.dependOn || [];
+
+      let fromSet = dependOnMap.get(from);
+      if (!fromSet) {
+        fromSet = new Set();
+        dependOnMap.set(from, fromSet);
+      }
+
+      toList.forEach(to => {
+        // Establish dependency A -> B
+        fromSet!.add(to.endpointUniqueId);
+
+        // Establish reverse dependency B <- A
+        let toSet = dependByMap.get(to.endpointUniqueId);
+        if (!toSet) {
+          toSet = new Set();
+          dependByMap.set(to.endpointUniqueId, toSet);
+        }
+        toSet!.add(from);
+      });
+    });
+
+    return { dependOnMap, dependByMap };
+  }
+
+  extractEndpointsInfo(
+    endpointsInfo: TSimulationNamespace[],
+    convertDate: number
+  ): {
+    endpointInfoSet: Map<string, TEndpointInfo>;
+  } {
+
+    const endpointInfoSet = new Map<string, TEndpointInfo>();
+    const processedUniqueServiceNameSet = new Set<string>();
+
+    for (const ns of endpointsInfo) {
+      for (const svc of ns.services) {
+        for (const ver of svc.versions) {
+          const uniqueServiceName = `${svc.serviceName}\t${ns.namespace}\t${ver.version}`;
+
+          // to avoid duplicate processing of the same service
+          if (processedUniqueServiceNameSet.has(uniqueServiceName)) continue;
+          processedUniqueServiceNameSet.add(uniqueServiceName);
+
+          for (const ep of ver.endpoints) {
+            const host = `http://${svc.serviceName}.${ns.namespace}.svc.cluster.local`;
+            const { path, method } = ep.endpointInfo;
+            const url = `${host}${path}`; // port default 80
+            const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
+            const uniqueEndpointName = `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
+
+            // create TEndpointInfo and insert into endpointInfoSet(used to create endpointDependencies)
+            endpointInfoSet.set(ep.endpointUniqueId, {
+              uniqueServiceName,
+              uniqueEndpointName,
+              service: svc.serviceName,
+              namespace: ns.namespace,
+              version: ver.version,
+              labelName: path,
+              url,
+              host,
+              path,
+              port: "80",
+              method: methodUpperCase,
+              clusterName: "cluster.local",
+              timestamp: convertDate,
+            });
+          }
+        }
+      }
+    }
+    return { endpointInfoSet };
+  }
+
+  createEndpointDependencies(
+    convertDate: number,
+    endpointInfoSet: Map<string, TEndpointInfo>,
+    dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
+  ): TEndpointDependency[] {
+    /*
+      Use BFS starting from each endpoint to find all the 'endpoints it depends on' and the 'endpoints that depend on it', 
+      calculate the distances between them, and combine this with TEndpointInfo to generate the corresponding TEndpointDependency structures.
+    */
+    const bfs = <T extends "SERVER" | "CLIENT">(
+      start: string,
+      graph: Map<string, Set<string>>,
+      type: T
+    ): {
+      endpoint: TEndpointInfo;
+      distance: number;
+      type: T;
+    }[] => {
+      const visited = new Set<string>();
+      const queue: [string, number][] = [[start, 0]];
+      const result: {
+        endpoint: TEndpointInfo;
+        distance: number;
+        type: T;
+      }[] = [];
+
+      // console.log("===============================")
+      // console.log("start=",start);
+      // console.log("graph=",graph);
+      // console.log("type=",type)
+      // console.log("===============================")
+
+      let head = 0;
+      while (head != queue.length) {
+        const [curr, distance] = queue[head++];
+        if (visited.has(curr)) continue;
+        visited.add(curr);
+
+        if (curr !== start) {
+          const epInfo = endpointInfoSet.get(curr);
+          if (epInfo) {
+            result.push({ endpoint: epInfo, distance, type });
+          }
+        }
+
+        const neighbors = graph.get(curr);
+        if (neighbors) {
+          for (const next of neighbors) {
+            if (!visited.has(next)) {
+              queue.push([next, distance + 1]);
+            }
+          }
+        }
+      }
+
+      return result;
+    };
+
+    const result: TEndpointDependency[] = [];
+
+    for (const [uniqueEndpointName, endpointInfo] of endpointInfoSet.entries()) {
+      const dependingOn = bfs(uniqueEndpointName, dependOnMap, "SERVER");
+      const dependingBy = bfs(uniqueEndpointName, dependByMap, "CLIENT");
+
+      result.push({
+        endpoint: endpointInfo,
+        lastUsageTimestamp: convertDate,
+        dependingOn,
+        dependingBy,
+      });
+    }
+
+    return result;
+  }
+
+  private parsedYamlToEndpointDependency(parsedYAML: TSimulationYAML){
+    const convertDate = Date.now();
+  
+    const {
+      endpointInfoSet
+    } = this.extractEndpointsInfo(parsedYAML.endpointsInfo,convertDate);
+
+    const {
+      dependOnMap,
+      dependByMap
+    } = this.buildDependencyMaps(parsedYAML.endpointDependencies);
+
+    const endpointDependencies = this.createEndpointDependencies(
+      convertDate,
+      endpointInfoSet,
+      dependOnMap,
+      dependByMap,
+    );
+
+    return endpointDependencies;
+
+  }
+
+
+
+
+
+}

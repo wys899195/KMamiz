@@ -63,12 +63,7 @@ export default class Simulator {
         });
       });
     });
-    
-    parsedYAML.trafficsInfo?.forEach(traffic => {
-      traffic.statusRate?.forEach(rate => {
-        rate.status = String(rate.status);
-      });
-    });
+
   }
 
 
