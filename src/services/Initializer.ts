@@ -27,6 +27,7 @@ import Scheduler from "./Scheduler";
 import ServiceOperator from "./ServiceOperator";
 import ServiceUtils from "./ServiceUtils";
 import ZipkinService from "./ZipkinService";
+import ImportExportHandler from "./ImportExportHandler";
 
 export default class Initializer {
   private static instance?: Initializer;
@@ -170,5 +171,8 @@ export default class Initializer {
 
   async simulationServerStartUp() {
     await this.registerDataCaches();
+
+    Logger.info("Try to loading initial data from kmamiz production service.");
+    await ImportExportHandler.getInstance().cloneDataFromProductionService();
   }
 }

@@ -1,32 +1,33 @@
-export type TRequestTypeLower =
-  | "get"
-  | "post"
-  | "put"
-  | "patch"
-  | "delete"
-  | "head"
-  | "options"
-  | "connect"
-  | "trace";
+const requestTypeLower = [
+  "get",
+  "post",
+  "put",
+  "patch",
+  "delete",
+  "head",
+  "options",
+  "connect",
+  "trace",
+] as const;
 
-export type TRequestTypeUpper =
-  | "GET"
-  | "POST"
-  | "PUT"
-  | "DELETE"
-  | "PATCH"
-  | "HEAD"
-  | "OPTIONS"
-  | "CONNECT"
-  | "TRACE";
+const requestTypeUpper = [
+  "GET",
+  "POST",
+  "PUT",
+  "PATCH",
+  "DELETE",
+  "HEAD",
+  "OPTIONS",
+  "CONNECT",
+  "TRACE"
+] as const;
 
-export type TRequestType =
-  | "Get"
-  | "Post"
-  | "Put"
-  | "Patch"
-  | "Delete"
-  | "Head"
-  | "Options"
-  | "Connect"
-  | "Trace";
+export const requestType = [
+  ...requestTypeLower, ...requestTypeUpper
+] as const
+
+export type TRequestTypeLower = typeof requestTypeLower[number];
+
+export type TRequestTypeUpper = typeof requestTypeUpper[number];
+
+export type TRequestType = typeof requestType[number];

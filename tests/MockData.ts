@@ -4585,7 +4585,7 @@ const MockHistoricalData: THistoricalData[] = [
           {
             labelName: undefined,
             latencyCV: 0.17888543819998,
-            latencyMean: 0.1,
+            latencyMean: 100,
             method: Method,
             requestErrors: 0,
             requests: 10,
@@ -4600,7 +4600,7 @@ const MockHistoricalData: THistoricalData[] = [
         requests: 10,
         requestErrors: 0,
         serverErrors: 0,
-        latencyMean: 0.1,
+        latencyMean: 100,
         latencyCV: 0.17888543819998,
         uniqueServiceName: UniqueServiceName,
         risk: 0.1,

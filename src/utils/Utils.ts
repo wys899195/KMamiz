@@ -44,18 +44,26 @@ export default class Utils {
   }
   private static sortObject(obj: any): any {
     if (Array.isArray(obj)) {
-      return obj
+      if (obj.every(this.isPrimitive)) {
+        return obj;
+      } else {
+        return obj
         .filter((o) => !this.isPrimitive(o))
         .map((o) => this.sortObject(o));
+      }
     }
-
     return Object.keys(obj)
       .sort()
       .reduce((prev, curr) => {
         let o = obj[curr];
         if (typeof o === "object") {
-          if (Array.isArray(o) && o.length > 0 && typeof o[0] === "object") {
-            o = o.map((o) => (o ? this.sortObject(o) : null));
+          if (Array.isArray(o) && o.length > 0) {
+            const isAllObject = o.every(item =>
+              typeof item === "object" && item !== null && !Array.isArray(item)
+            );
+            if (isAllObject) {
+              o = o.map((item) => this.sortObject(item));
+            }
           } else if (!Array.isArray(o)) o = o ? this.sortObject(o) : null;
         }
         prev[curr] = o;

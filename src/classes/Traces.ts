@@ -89,7 +89,7 @@ export class Traces {
           namespace,
           version,
           method,
-          latency: trace.duration,
+          latency: trace.duration / 1000, // divide by 1000 to avoid standard deviation growing too fast causing overflow
           status,
           responseBody: log?.response.body,
           responseContentType: log?.response.contentType,

@@ -1,4 +1,5 @@
 import { Schema, SchemaDefinitionProperty, model } from "mongoose";
+import { EndpointDataTypeSchema } from "./EndpointDataTypeSchema";
 import { TTaggedDiffData } from "../TTaggedDiffData";
 import { TGraphData } from "../TGraphData";
 import { TServiceCoupling } from "../TServiceCoupling";
@@ -44,6 +45,7 @@ const ServiceEndpointsConsumerSchema: SchemaDefinitionProperty<TServiceEndpoints
 
 const TotalServiceInterfaceCohesionSchema: SchemaDefinitionProperty<TTotalServiceInterfaceCohesion> = {
   uniqueServiceName: { type: String, required: true },
+  isDatatypeMatched: { type: Boolean, required: true },
   name: { type: String, required: true },
   dataCohesion: { type: Number, required: true }, // SIDC
   usageCohesion: { type: Number, required: true }, // SIUC
@@ -76,7 +78,12 @@ export const TaggedDiffDataSchema = new Schema<TTaggedDiffData>({
   graphData: GraphDataSchema,
   cohesionData: [TotalServiceInterfaceCohesionSchema],
   couplingData: [ServiceCouplingSchema],
-  instabilityData: [ServiceInstabilitySchema]
+  instabilityData: [ServiceInstabilitySchema],
+  endpointDataTypesMap: {
+    type: Map,
+    of: EndpointDataTypeSchema,
+    required: true,
+  }
 });
 
 export const TaggedDiffDataModel = model<TTaggedDiffData>(

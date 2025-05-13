@@ -1,13 +1,10 @@
 import { CEndpointDataType } from "../classes/Cacheable/CEndpointDataType";
 import { CLabeledEndpointDependencies } from "../classes/Cacheable/CLabeledEndpointDependencies";
-import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CLabelMapping } from "../classes/Cacheable/CLabelMapping";
 import EndpointDataType from "../classes/EndpointDataType";
 import { EndpointDependencies } from "../classes/EndpointDependencies";
 import { TLineChartData } from "../entities/TLineChartData";
 import { TServiceStatistics } from "../entities/TStatistics";
-import { TTaggedDiffData } from "../entities/TTaggedDiffData";
-
 import { TGraphData } from "../entities/TGraphData";
 import IRequestHandler from "../entities/TRequestHandler";
 import { TServiceCohesion } from "../entities/TServiceCohesion";
@@ -16,7 +13,6 @@ import DataCache from "../services/DataCache";
 import ServiceUtils from "../services/ServiceUtils";
 import { TRequestInfoChartData } from "../entities/TRequestInfoChartData";
 import Logger from "../utils/Logger";
-import GlobalSettings from "../../src/GlobalSettings";
 
 export default class GraphService extends IRequestHandler {
   constructor() {
@@ -45,148 +41,7 @@ export default class GraphService extends IRequestHandler {
         else res.sendStatus(404);
       }
     );
-    this.addRoute(
-      "get", 
-      "/taggedDependency/endpoint", 
-      async (req, res) => {
-      const { tag } = req.query as { tag: string };
-      const graph = await this.getTaggedDependencyGraph(
-        tag && decodeURIComponent(tag)
-      );
-      if (graph) res.json(graph);
-      else res.sendStatus(404);
-    });
-    this.addRoute(
-      "get", 
-      "/taggedDependency/service", 
-      async (req, res) => {
-      const { tag } = req.query as { tag: string };
-      const graph = await this.getTaggedServiceDependencyGraph(
-        tag && decodeURIComponent(tag)
-      );
-      if (graph) res.json(graph);
-      else res.sendStatus(404);
-    });
-    this.addRoute(
-      "get", 
-      "/diffData/tags", 
-      async (req, res) => {
-        req = req; // to aviod compile error: 'req' is declared but its value is never read"
-        res.json(this.getTagsOfDiffData());
-    });
-    
-    if (!GlobalSettings.SimulatorMode) {
-      this.addRoute(
-        "post",
-        "/diffData/tags",
-        async (req, res) => {
-          const { tag } = req.body as {
-            tag: string;
-          };
-          if (!tag) res.sendStatus(400);
-          else {
-            const graphData = await this.getDependencyGraph();
-            const cohesionData = this.getServiceCohesion();
-            const couplingData = this.getServiceCoupling();
-            const instabilityData = this.getServiceInstability();
-            console.log("graphData ",JSON.stringify(graphData ,null,2));
-            console.log("cohesionData ",JSON.stringify(cohesionData ,null,2));
-            console.log("couplingData ",JSON.stringify(couplingData ,null,2));
-            console.log("instabilityData ",JSON.stringify(instabilityData ,null,2));
-            if (!graphData || !cohesionData || !couplingData || !instabilityData) {
-              res.sendStatus(500);
-            } else {
-              this.addTaggedDiffData({
-                tag: tag,
-                graphData: graphData,
-                cohesionData: cohesionData,
-                couplingData: couplingData,
-                instabilityData: instabilityData
-              });
-              res.sendStatus(200);
-            }
 
-          }
-        });
-    } else {
-      this.addRoute(
-        "post",
-        "/diffData/tags",
-        async (req, res) => {
-          const { tag } = req.body as {
-            tag: string;
-          };
-          if (!tag) res.sendStatus(400);
-          else {
-            const graphData = await this.getDependencyGraph();
-            const cohesionData = this.getServiceCohesion();
-            const couplingData = this.getServiceCoupling();
-            const instabilityData = this.getServiceInstability();
-            console.log("graphData ",JSON.stringify(graphData ,null,2));
-            console.log("cohesionData ",JSON.stringify(cohesionData ,null,2));
-            console.log("couplingData ",JSON.stringify(couplingData ,null,2));
-            console.log("instabilityData ",JSON.stringify(instabilityData ,null,2));
-            if (!graphData || !cohesionData || !couplingData || !instabilityData) {
-              res.sendStatus(500);
-            } else {
-              // the kmamiz service which in production mode will append a diffData
-              try {
-                const resFromProductionMode = await fetch("http://kmamiz:8080/api/v1/graph/diffData/tagged/tags", {
-                  method: "POST",
-                  headers: {
-                    "Content-Type": "application/json",
-                  },
-                  body: JSON.stringify({
-                    tag: `(Simulator) ${tag}`,
-                    graphData: graphData,
-                    cohesionData: cohesionData,
-                    couplingData: couplingData,
-                    instabilityData: instabilityData
-                  }),
-                });
-                if (!resFromProductionMode.ok) {
-                  const errorText = await resFromProductionMode.text();
-                  return res.status(500).json({ message: errorText });
-                } else {
-                  res.sendStatus(200);
-                }
-              } catch (err) {
-                console.error("Error calling kmamiz:", err);
-                res.sendStatus(500);
-              }
-            }
-          }
-        });
-    }
-
-
-    if (!GlobalSettings.SimulatorMode) {
-      this.addRoute(
-        "post", 
-        "/diffData/tagged/tags", 
-        async (req, res) => {
-          const tagged = req.body as TTaggedDiffData;
-          if (!tagged) res.sendStatus(400);
-          else {
-            this.addTaggedDiffData(tagged);
-            res.sendStatus(200);
-          }
-      });
-    }
-
-    this.addRoute(
-      "delete", 
-      "/diffData/tags",
-      async (req, res) => {
-      const { tag } = req.body as {
-        tag: string;
-      };
-      if (!tag) res.sendStatus(400);
-      else {
-        this.deleteTaggedDiffData(tag);
-        res.sendStatus(200);
-      }
-    });
     this.addRoute("get", "/chord/direct/:namespace?", async (req, res) => {
       const namespace = req.params["namespace"];
       res.json(
@@ -243,52 +98,6 @@ export default class GraphService extends IRequestHandler {
         this.getServiceCoupling(namespace && decodeURIComponent(namespace))
       );
     });
-    this.addRoute("get", "/taggedCohesion/:namespace?", async (req, res) => {
-      const namespace = req.params["namespace"];
-      const { tag } = req.query as { tag: string };
-      if (tag){
-        res.json(
-          this.getTaggedServiceCohesion(tag,namespace && decodeURIComponent(namespace))
-        );
-      }else{
-        //default return latest version data
-        res.json(
-          this.getServiceCohesion(namespace && decodeURIComponent(namespace))
-        );
-      }
-
-    });
-    this.addRoute("get", "/taggedInstability/:namespace?", async (req, res) => {
-      const namespace = req.params["namespace"];
-      const { tag } = req.query as { tag: string };
-      if (tag){
-        res.json(
-          this.getTaggedServiceInstability(tag,namespace && decodeURIComponent(namespace))
-        );
-      }else{
-        //default return latest version data
-        res.json(
-          this.getServiceInstability(namespace && decodeURIComponent(namespace))
-        );
-      }
-    });
-    this.addRoute("get", "/taggedCoupling/:namespace?", async (req, res) => {
-      const namespace = req.params["namespace"];
-      const { tag } = req.query as { tag: string };
-      if (tag){
-        res.json(
-          this.getTaggedServiceCoupling(tag,namespace && decodeURIComponent(namespace))
-        );
-      }else{
-        //default return latest version data
-        res.json(
-          this.getServiceCoupling(namespace && decodeURIComponent(namespace))
-        );
-      }
-
-    });
-
-
     this.addRoute("get", "/requests/:uniqueName", async (req, res) => {
       const notBeforeQuery = req.query["notBefore"] as string;
       const notBefore = notBeforeQuery ? parseInt(notBeforeQuery) : undefined;
@@ -300,10 +109,7 @@ export default class GraphService extends IRequestHandler {
         )
       );
     });
-
-
   }
-
   async getDependencyGraph(namespace?: string) {
     const rootNode: TGraphData = {
       nodes: [
@@ -330,40 +136,11 @@ export default class GraphService extends IRequestHandler {
     return this.toServiceDependencyGraph(endpointGraph);
   }
 
-  async getTaggedDependencyGraph(tag?: string) {
-    const diffData = DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .getDataByTag(tag);
-    
-    return diffData?.graphData || this.getDependencyGraph();
-
+  getEmptyGraphData(): TGraphData {
+    return new EndpointDependencies([]).toGraphData();
   }
 
-  async getTaggedServiceDependencyGraph(tag?: string) {
-    const endpointGraph = await this.getTaggedDependencyGraph(tag);
-    if (!endpointGraph) return endpointGraph;
-    return this.toServiceDependencyGraph(endpointGraph);
-  }
-
-  getTagsOfDiffData():{ tag: string; time: number }[] {
-    return DataCache.getInstance()
-    .get<CTaggedDiffData>("TaggedDiffDatas")
-    .getTagsWithTime();
-  }
-
-  addTaggedDiffData(tagged: TTaggedDiffData) {
-    DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .add(tagged);
-  }
-
-  deleteTaggedDiffData(tag: string) {
-    DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .delete(tag);
-  }
-
-  private toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
+  toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
     const linkSet = new Set<string>();
     endpointGraph.links.forEach((l) => {
       const source = l.source.split("\t").slice(0, 2).join("\t");
@@ -552,7 +329,7 @@ export default class GraphService extends IRequestHandler {
     const usageCohesions = dependencies.toServiceEndpointCohesion();
 
     const results = usageCohesions.map(
-      (u): TTotalServiceInterfaceCohesion | null => {
+      (u): TTotalServiceInterfaceCohesion => {
         const uniqueServiceName = u.uniqueServiceName;
         const [service, namespace, version] = uniqueServiceName.split("\t");
         const dCohesion = dataCohesion.get(uniqueServiceName);
@@ -560,10 +337,22 @@ export default class GraphService extends IRequestHandler {
           Logger.error(
             `Mismatching service cohesion information with unique service: ${uniqueServiceName}`
           );
-          return null;
+          return {
+            uniqueServiceName,
+            isDatatypeMatched: false,
+            name: `${service}.${namespace} (${version})`,
+            dataCohesion: 0,
+            usageCohesion: u.endpointUsageCohesion,
+            totalInterfaceCohesion:
+              (0 + u.endpointUsageCohesion) / 2,
+            endpointCohesion: [],
+            totalEndpoints: u.totalEndpoints,
+            consumers: u.consumers,
+          };
         }
         return {
           uniqueServiceName,
+          isDatatypeMatched: true,
           name: `${service}.${namespace} (${version})`,
           dataCohesion: dCohesion.cohesiveness,
           usageCohesion: u.endpointUsageCohesion,
@@ -599,31 +388,6 @@ export default class GraphService extends IRequestHandler {
       .toServiceCoupling()
       .sort((a, b) => a.name.localeCompare(b.name));
   }
-  
-  getTaggedServiceCohesion(tag?: string, namespace?: string) {
-    const diffData = DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .getDataByTag(tag);
-
-    return diffData?.cohesionData || this.getServiceCohesion(namespace);
-  }
-
-  getTaggedServiceInstability(tag?: string, namespace?: string) {
-    const diffData = DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .getDataByTag(tag);
-
-    return diffData?.instabilityData || this.getServiceInstability(namespace);
-  }
-
-  getTaggedServiceCoupling(tag?: string, namespace?: string) {
-    const diffData = DataCache.getInstance()
-    .get<CTaggedDiffData>("TaggedDiffDatas")
-    .getDataByTag(tag);
-
-    return diffData?.couplingData || this.getServiceCoupling(namespace);
-  }
-
 
   async getRequestInfoChartData(
     uniqueName: string,

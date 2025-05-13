@@ -51,6 +51,19 @@ export default class DataService extends IRequestHandler {
         else res.sendStatus(404);
       }
     });
+    this.addRoute("get", "/dataTypesMap", async (req, res) => {
+      const uniqueLabelNamesReq = req.query["labelNames"] as string[];
+      const uniqueLabelNames = Array.isArray(uniqueLabelNamesReq)
+        ? uniqueLabelNamesReq.map(decodeURIComponent)
+        : typeof uniqueLabelNamesReq === "string"
+          ? [decodeURIComponent(uniqueLabelNamesReq)]
+          : [];
+      if (!uniqueLabelNames) res.sendStatus(400);
+      else {
+        const result = await this.getEndpointDataTypesMap(uniqueLabelNames);
+        res.json(result);
+      }
+    });
 
     this.registerLabelEndpoints();
     this.registerInterfaceEndpoints();
@@ -58,6 +71,16 @@ export default class DataService extends IRequestHandler {
     this.addRoute("post", "/sync", async (_, res) => {
       await DispatchStorage.getInstance().syncAll();
       res.sendStatus(200);
+    });
+    this.addRoute("get", "/export", async (_, res) => {
+      res.contentType("application/tar+gzip");
+      const json = await ImportExportHandler.getInstance().exportData();
+      const stream = new tgz.Stream();
+      stream.addEntry(Buffer.from(json, "utf8"), {
+        relativePath: "KMamiz.cache.json",
+      });
+      stream.on("end", () => res.end());
+      stream.pipe(res);
     });
 
     if (GlobalSettings.EnableTestingEndpoints) {
@@ -134,16 +157,6 @@ export default class DataService extends IRequestHandler {
     this.addRoute("delete", "/clear", async (_, res) => {
       await ImportExportHandler.getInstance().clearData();
       res.sendStatus(200);
-    });
-    this.addRoute("get", "/export", async (_, res) => {
-      res.contentType("application/tar+gzip");
-      const json = await ImportExportHandler.getInstance().exportData();
-      const stream = new tgz.Stream();
-      stream.addEntry(Buffer.from(json, "utf8"), {
-        relativePath: "KMamiz.cache.json",
-      });
-      stream.on("end", () => res.end());
-      stream.pipe(res);
     });
     this.addRoute("post", "/import", async (req, res) => {
       try {
@@ -222,6 +235,17 @@ export default class DataService extends IRequestHandler {
     if (datatype.length === 0) return null;
     const merged = datatype.reduce((prev, curr) => prev.mergeSchemaWith(curr));
     return { ...merged.toJSON(), labelName: label };
+  }
+
+  async getEndpointDataTypesMap(uniqueLabelNames: string[]): Promise<Record<string, TEndpointDataType>> {
+    const endpointDataTypeMap: Record<string, TEndpointDataType> = {};
+    for (const uniqueLabelName of uniqueLabelNames) {
+      const dataType = await this.getEndpointDataType(uniqueLabelName);
+      if (dataType) {
+        endpointDataTypeMap[uniqueLabelName] = dataType;
+      }
+    }
+    return endpointDataTypeMap;
   }
 
   getLabelMap() {

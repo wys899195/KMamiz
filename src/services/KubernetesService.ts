@@ -92,6 +92,29 @@ export default class KubernetesService {
     );
   }
 
+  // Production services must be in the same namespace as the simulator service.
+  async getProductionServicePort() {
+    const serviceList = await this.getServiceList('kmamiz-system');
+    const kmamizService = serviceList.items.find(
+      (service) => service.metadata.name === "kmamiz"
+    );
+  
+    if (kmamizService && kmamizService.spec && kmamizService.spec.ports && kmamizService.spec.ports.length > 0) {
+      return kmamizService.spec.ports[0].port;
+    } else {
+      return 80;
+    }
+
+    // http://kmamiz:8080
+  }
+
+  async getProductionServiceBaseURL() {
+    const pServiceName = 'kmamiz';
+    const pServicePort = await this.getProductionServicePort();
+    return `http://${pServiceName}:${pServicePort}`;
+
+  }
+
   async getReplicasFromPodList(namespace: string) {
     const pods = await this.getPodList(namespace);
     const replicaMap = pods.items

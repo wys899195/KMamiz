@@ -92,7 +92,7 @@ export default class CombinedRealtimeDataList {
         const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
 
         return {
-          latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency / 1000 : 0,//divide by 1000 to change the unit to milliseconds
+          latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency: 0,
           latencyCV: Math.max(...r.map((rl) => rl.latency.cv || 0)),
           method: method as TRequestTypeUpper,
           requestErrors,
@@ -138,7 +138,7 @@ export default class CombinedRealtimeDataList {
           requests,
           requestErrors,
           serverErrors,
-          latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency / 1000 : 0,//divide by 1000 to change the unit to milliseconds
+          latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency: 0,
           latencyCV: Math.max(...r.map((rl) => rl.latency.cv || 0)),
           uniqueServiceName,
           risk: risks.find(

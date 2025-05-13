@@ -97,8 +97,12 @@ app.use(spaRouter);
     exitHook(async (callback) => {
       Logger.info("Received termination signal, execute teardown procedures.");
 
-      if (!GlobalSettings.ReadOnlyMode && !GlobalSettings.ServeOnly && !GlobalSettings.SimulatorMode) {
-        await DispatchStorage.getInstance().syncAll();
+      if (!GlobalSettings.ReadOnlyMode && !GlobalSettings.ServeOnly) {
+        if (GlobalSettings.SimulatorMode) {
+          await MongoOperator.getInstance().clearDatabase(); // simulator will not save data in database
+        } else {
+          await DispatchStorage.getInstance().syncAll();
+        }
       } else {
         Logger.info("Readonly mode enabled, skipping teardown.");
       }
