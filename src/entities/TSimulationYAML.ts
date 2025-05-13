@@ -6,7 +6,7 @@ export const simulationResponseBodySchema = z.object({
   status: z.number().int().refine(
     (val) => val >= 100 && val <= 599,
     { message: "Invalid status. It must be between 100 and 599." }
-  ).transform((val) => val.toString()),
+  ),
   responseContentType: z.string(),
   responseBody: z.string(),
 }).strict();

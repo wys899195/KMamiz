@@ -41,7 +41,7 @@ export default class Simulator {
   }
 
   private preprocessParsedYaml(parsedYAML: TSimulationYAML): void {
-    // 1. Convert all status and version fields to strings
+    // 1. Convert all version fields to strings
     // 2. De-identify requestBody and responseBody in Datatype
     parsedYAML.endpointsInfo.forEach(namespace => {
       namespace.services.forEach(service => {
@@ -50,13 +50,12 @@ export default class Simulator {
           version.endpoints.forEach(endpoint => {
             if (endpoint.datatype) {
               if (endpoint.datatype.requestContentType == "application/json") {
-                endpoint.datatype.requestBody = this.preprocessBody(endpoint.datatype.requestBody);
+                endpoint.datatype.requestBody = this.preprocessJsonBody(endpoint.datatype.requestBody);
               }
               endpoint.datatype.responses.forEach(response => {
                 if (response.responseContentType == "application/json") {
-                  response.responseBody = this.preprocessBody(response.responseBody);
+                  response.responseBody = this.preprocessJsonBody(response.responseBody);
                 }
-                response.status = String(response.status);
               });
             }
           });
@@ -67,9 +66,9 @@ export default class Simulator {
   }
 
 
-  private preprocessBody(bodyString: string): string {
-    const jsonStr = this.convertTypeToJson(bodyString);
+  private preprocessJsonBody(bodyString: string): string {
     try {
+      const jsonStr = this.convertUserDefinedTypeToJson(bodyString);
       const parsedBody = JSON.parse(jsonStr);
       const processedBody = this.deIdentify(parsedBody);
       return JSON.stringify(processedBody);
@@ -80,7 +79,7 @@ export default class Simulator {
   }
 
   //Convert TypeScript-like type definitions (interface-style structures) into JSON format string.
-  private convertTypeToJson(input: string): string {
+  private convertUserDefinedTypeToJson(input: string): string {
     // Remove extra whitespace for easier processing
     input = input.replace(/\s+/g, ' ').trim();
 
@@ -97,7 +96,7 @@ export default class Simulator {
     return input;
   }
 
-  //Parse object properties
+  //(for convertUserDefinedTypeToJson)Parse object properties
   private parseProperties(input: string): string {
     const properties: string[] = [];
     let currentProperty = '';
@@ -129,7 +128,7 @@ export default class Simulator {
     return properties.join(', ');
   }
 
-  //Parse a single property
+  //(for convertUserDefinedTypeToJson)Parse a single property
   private parseProperty(input: string): string {
     // Split property name and type
     const colonIndex = input.indexOf(':');
@@ -141,7 +140,7 @@ export default class Simulator {
     return `"${propertyName}": ${this.parseType(propertyType)}`;
   }
 
-  //Parse type definition
+  //(for convertUserDefinedTypeToJson)Parse type definition
   private parseType(type: string): string {
 
     // Handle array type - extract array notations first
@@ -156,7 +155,7 @@ export default class Simulator {
 
     // Handle object type (which may also have array markers)
     if (baseType.startsWith('{') && baseType.endsWith('}')) {
-      let result = this.convertTypeToJson(baseType);
+      let result = this.convertUserDefinedTypeToJson(baseType);
 
       // Wrap with array brackets if array notations exist
       for (let i = 0; i < arrayNotations.length / 2; i++) {
@@ -182,7 +181,7 @@ export default class Simulator {
     return `"${type}"`;
   }
 
-  // after convertTypeToJson,execute deIdentify
+  // after convertUserDefinedTypeToJson,execute deIdentify
   private deIdentify(obj: any): any {
     if (Array.isArray(obj)) {
       return obj.map(item => this.deIdentify(item));

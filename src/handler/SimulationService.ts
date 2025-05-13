@@ -19,19 +19,19 @@ export default class SimulationService extends IRequestHandler {
           const result = simulator.yamlToGraphData(decodedYAMLData);
 
           const isEmptyYAML = !decodedYAMLData.trim();
-          const hasNoYamlFormatError = !result.validationErrorMessage; 
-  
-          if (isEmptyYAML || hasNoYamlFormatError){
+          const hasNoYamlFormatError = !result.validationErrorMessage;
+
+          if (isEmptyYAML || hasNoYamlFormatError) {
             if (showEndpoint) {
               return res.status(200).json({ graph: result.graph, message: result.validationErrorMessage });
             } else { //service graph
               return res.status(200).json({ graph: this.toServiceDependencyGraph(result.graph), message: result.validationErrorMessage });
             }
-            
+
           } else {
             return res.status(400).json({ graph: result.graph, message: result.validationErrorMessage });
           }
-        } catch (err){
+        } catch (err) {
           return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
         }
       }
@@ -45,8 +45,7 @@ export default class SimulationService extends IRequestHandler {
         if (!endpointDependencyGraph) {
           res.json('');
         }
-        const simulator = DependencyGraphSimulator.getInstance();
-        const yamlString = simulator.graphDataToYAML(endpointDependencyGraph);
+        const yamlString = DependencyGraphSimulator.getInstance().graphDataToYAML(endpointDependencyGraph);
         res.json(yamlString);
 
       }
@@ -61,7 +60,7 @@ export default class SimulationService extends IRequestHandler {
         const decodedYAMLData = yamlData ? decodeURIComponent(yamlData) : '';
         const isEmptyYAML = !decodedYAMLData.trim();
         if (isEmptyYAML) {
-          return res.status(201).json({ message: "Received an empty YAML. Skipping data retrieval."  });
+          return res.status(201).json({ message: "Received an empty YAML. Skipping data retrieval." });
         } else {
           try {
             //retrieve data from yaml
@@ -76,7 +75,7 @@ export default class SimulationService extends IRequestHandler {
               // console.log(`dependencies = ${JSON.stringify(result.endpointDependencies,null,2)}\n=======\n`);
               // console.log(`dataType = ${JSON.stringify(result.dataType,null,2)}\n=======\n`);
               // console.log(`replicaCount = ${JSON.stringify(result.replicaCountList,null,2)}\n=======\n`);
-              
+
               //update to cache and create historical and aggregatedData
               try {
                 ServiceOperator.getInstance().postSimulationRetrieve({
@@ -88,14 +87,33 @@ export default class SimulationService extends IRequestHandler {
                 ServiceOperator.getInstance().createHistoricalAndAggregatedData();
                 return res.status(200).json({ message: "ok" });
               } catch (err) {
-                return res.status(500).json({ message: `Error while caching and creating historical and aggregated data:\n${err instanceof Error ? err.message : err}`});
+                return res.status(500).json({ message: `Error while caching and creating historical and aggregated data:\n${err instanceof Error ? err.message : err}` });
               }
             }
-          } catch (err){
-            return res.status(500).json({ graph: null, message: `Error simulate retrive data by YAML:\n${err instanceof Error ? err.message : err}`});
+          } catch (err) {
+            return res.status(500).json({ graph: null, message: `Error simulate retrive data by YAML:\n${err instanceof Error ? err.message : err}` });
           }
         }
 
+      }
+    );
+
+    this.addRoute(
+      "get",
+      "/generateStaticYaml",
+      async (_, res) => {
+        try {
+          const staticYamlStr = StaticSimulator.getInstance().generateStaticYamlFromCurrentData();
+          return res.status(200).json({
+            staticYamlStr: staticYamlStr,
+            message: "ok"
+          });
+        } catch (err) {
+          return res.status(500).json({
+            staticYamlStr: '',
+            message: `Error while trying to generate static Simulation Yaml:\n${err instanceof Error ? err.message : err}`
+          });
+        }
       }
     );
   }
