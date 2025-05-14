@@ -3,6 +3,8 @@ import { TSimulationYAML, simulationYAMLSchema } from "../../entities/TSimulatio
 import { CLabelMapping } from "../../classes/Cacheable/CLabelMapping";
 import DataCache from "../../services/DataCache";
 
+type BodyInputType = "sample" | "typeDefinition" | "unknown";
+
 export default class Simulator {
 
   protected validateAndParseYAML(yamlString: string): {
@@ -20,7 +22,13 @@ export default class Simulator {
 
       const validationResult = simulationYAMLSchema.safeParse(parsedYAML);
       if (validationResult.success) {
-        this.preprocessParsedYaml(parsedYAML);
+        const preprocessErrors = this.preprocessParsedYaml(parsedYAML);
+        if (preprocessErrors.length > 0) {
+          return {
+            validationErrorMessage: "Preprocessing errors:\n" + preprocessErrors.map(e => `• ${e}`).join("\n"),
+            parsedYAML: null,
+          };
+        }
         return {
           validationErrorMessage: "",
           parsedYAML: parsedYAML
@@ -42,9 +50,10 @@ export default class Simulator {
     }
   }
 
-  private preprocessParsedYaml(parsedYAML: TSimulationYAML): void {
+  private preprocessParsedYaml(parsedYAML: TSimulationYAML): string[] {
     // 1. Convert all version fields to strings
     // 2. De-identify requestBody and responseBody in Datatype
+    const errorMessages: string[] = [];
     parsedYAML.endpointsInfo.forEach(namespace => {
       namespace.services.forEach(service => {
         service.versions.forEach(version => {
@@ -52,11 +61,21 @@ export default class Simulator {
           version.endpoints.forEach(endpoint => {
             if (endpoint.datatype) {
               if (endpoint.datatype.requestContentType == "application/json") {
-                endpoint.datatype.requestBody = this.preprocessJsonBody(endpoint.datatype.requestBody);
+                const result = this.preprocessJsonBody(endpoint.datatype.requestBody);
+                if (!result.isSuccess) {
+                  errorMessages.push(`Invalid requestBody in endpoint ${endpoint.endpointUniqueId}: ${result.warningMessage}`);
+                } else {
+                  endpoint.datatype.requestBody = result.processedBodyString;
+                }
               }
               endpoint.datatype.responses.forEach(response => {
                 if (response.responseContentType == "application/json") {
-                  response.responseBody = this.preprocessJsonBody(response.responseBody);
+                  const result = this.preprocessJsonBody(response.responseBody);
+                  if (!result.isSuccess) {
+                    errorMessages.push(`Invalid responseBody in endpoint ${endpoint.endpointUniqueId}: ${result.warningMessage}`);
+                  } else {
+                    response.responseBody = result.processedBodyString;
+                  }
                 }
               });
             }
@@ -65,19 +84,72 @@ export default class Simulator {
       });
     });
 
+    return errorMessages;
   }
 
 
-  private preprocessJsonBody(bodyString: string): string {
+  private preprocessJsonBody(bodyString: string): {
+    isSuccess: boolean,
+    processedBodyString: string,
+    warningMessage: string
+  } {
+    const inputType: BodyInputType = this.classifyBodyInputType(bodyString);
+    // case 1: user provides a sample, de-identify it.
+    // case 2: user provides a type definition, convert it to JSON first.
+    // if it preprocess fails, user will be asked to re-input it.
     try {
-      const jsonStr = this.convertUserDefinedTypeToJson(bodyString);
-      const parsedBody = JSON.parse(jsonStr);
-      const processedBody = this.deIdentify(parsedBody);
-      return JSON.stringify(processedBody);
-    } catch (e) {
-      return ''
-    }
+      let parsedBody: any;
 
+      if (inputType === "sample") {
+        parsedBody = JSON.parse(bodyString);
+      } else if (inputType === "typeDefinition") {
+        const jsonStr = this.convertUserDefinedTypeToJson(bodyString);
+        parsedBody = JSON.parse(jsonStr);
+      } else {
+        return { // unknown input, will call user to re-input
+          isSuccess: false,
+          processedBodyString: '',
+          warningMessage: "Unrecognized format. Please provide a valid JSON sample or a type definition using only primitive types like string, number, or boolean (e.g., { name: string, age: number })."
+        };
+      }
+      console.log(" inputType =", inputType);
+      console.log(" parsedBody =", JSON.stringify(parsedBody, null, 2));
+      const processedBody = inputType === "sample" ?
+        this.deIdentifyJsonSample(parsedBody) :
+        this.deIdentifyJsonTypeDefinition(parsedBody);
+      return {
+        isSuccess: true,
+        processedBodyString: JSON.stringify(processedBody),
+        warningMessage: ""
+      };
+
+    } catch (e) {
+      return {
+        isSuccess: false,
+        processedBodyString: '',
+        warningMessage: `Failed to process input. Make sure it is valid JSON or a type definition using only primitive types like string, number, or boolean (e.g., { name: string, age: number }). err: ${e instanceof Error ? e.message : e}`,
+      };
+    }
+  }
+
+  private classifyBodyInputType(input: string): BodyInputType {
+    if (this.isJsonSample(input)) return "sample";
+    if (this.isTypeDefinition(input)) return "typeDefinition";
+    return "unknown";
+  }
+
+  private isJsonSample(input: string): boolean {
+    try {
+      const parsed = JSON.parse(input);
+      return typeof parsed === 'object' && parsed !== null;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  private isTypeDefinition(input: string): boolean {
+    const trimmed = input.trim();
+    return !this.isJsonSample(input) && /:\s*(string|number|boolean|\{|\[)/i.test(trimmed);
   }
 
   //Convert TypeScript-like type definitions (interface-style structures) into JSON format string.
@@ -183,29 +255,39 @@ export default class Simulator {
     return `"${type}"`;
   }
 
-  // after convertUserDefinedTypeToJson,execute deIdentify
-  private deIdentify(obj: any): any {
-    if (Array.isArray(obj)) {
-      return obj.map(item => this.deIdentify(item));
-    } else if (obj !== null && typeof obj === 'object') {
+  private deIdentify(
+    input: any,
+    isTypeDefinition: boolean
+  ): any {
+    if (Array.isArray(input)) {
+      return input.map(item => this.deIdentify(item, isTypeDefinition));
+    } else if (input !== null && typeof input === 'object') {
       const newObj: any = {};
-      for (const key in obj) {
-        newObj[key] = this.deIdentify(obj[key]);
+      for (const key in input) {
+        newObj[key] = this.deIdentify(input[key], isTypeDefinition);
       }
       return newObj;
-    } else if (obj === "string") {
-      return ""; // Replace "string" with empty string
-    } else if (obj === "number") {
-      return 0; // Replace "number" with 0
-    } else if (obj === "boolean") {
-      return false; // Replace "boolean" with false
     } else {
-      return null;  // Default case (e.g., if the user inputs "strings" instead of "string", it will be parsed as null)
+      if (isTypeDefinition) {
+        if (input === "string") return ""; // Replace "string" with empty string
+        if (input === "number") return 0; // Replace "number" with 0
+        if (input === "boolean") return false; // Replace "boolean" with false
+        return null;// Default case (e.g., if the user inputs "strings" instead of "string", it will be parsed as null)
+      } else {
+        if (typeof input === 'string') return "";
+        if (typeof input === 'number') return 0;
+        if (typeof input === 'boolean') return false;
+        return null;
+      }
     }
-
+  }
+  private deIdentifyJsonTypeDefinition(obj: any): any {
+    return this.deIdentify(obj, true);
   }
 
-
+  private deIdentifyJsonSample(input: any): any {
+    return this.deIdentify(input, false);
+  }
   protected getExistingUniqueEndpointNameMappings(): Map<string, string> {
     const entries = DataCache.getInstance()
       .get<CLabelMapping>("LabelMapping")
@@ -235,17 +317,12 @@ export default class Simulator {
 
   protected generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string, existingUniqueEndpointNameMappings: Map<string, string>) {
     const existing = existingUniqueEndpointNameMappings.get(`${uniqueServiceName}\t${methodUpperCase}\t${path}`);
-    
+
     if (existing) {
       console.log("existinggg:")
       console.log(existing)
       return existing;
     } else {
-      console.log("not existinggg:")
-      console.log("existingUniqueEndpointNameMappings = ", JSON.stringify([...existingUniqueEndpointNameMappings.entries()]));
-      console.log("not  keyy:")
-      console.log(`${uniqueServiceName}\t${methodUpperCase}\t${path}`)
-      console.log("\n\n")
       const host = `http://${serviceName}.${namespace}.svc.cluster.local`;
       const url = `${host}${path}`; // port default 80
       return `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
