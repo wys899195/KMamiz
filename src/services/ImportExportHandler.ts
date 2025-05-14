@@ -98,7 +98,10 @@ export default class ImportExportHandler {
     return true;
   }
 
-  async cloneDataFromProductionService() {
+  async cloneDataFromProductionService(): Promise<{
+    isSuccess: boolean,
+    message: string
+  }> {
     const productionServiceBaseURL = await KubernetesService.getInstance().getProductionServiceBaseURL();
     const res = await fetch(`${productionServiceBaseURL}/api/v1/data/export`, {
       method: "GET",
@@ -107,7 +110,10 @@ export default class ImportExportHandler {
       },
     });
     if (!res.ok) {
-      return;
+      return {
+        isSuccess: false,
+        message: 'Failed to reach the KMamiz production environment. No response received.'
+      };
     }
     try {
       const buffer = await res.arrayBuffer();
@@ -132,10 +138,17 @@ export default class ImportExportHandler {
         },
       });
       readableStream.pipe(stream);
+      return {
+        isSuccess: true,
+        message: 'ok'
+      };
     } catch (ex) {
-      Logger.error(`Failed to clone data from kmamiz production service, simulator data will be empty.`);
+      Logger.error(`Failed to clone data from KMamiz production service, simulator data will be empty.`);
       Logger.verbose("", ex);
-      return;
+      return {
+        isSuccess: false,
+        message: 'An error occurred while cloning data from the KMamiz production service. See the simulator logs for more information.'
+      };
     }
   }
 

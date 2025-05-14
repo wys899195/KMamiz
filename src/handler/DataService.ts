@@ -83,6 +83,18 @@ export default class DataService extends IRequestHandler {
       stream.pipe(res);
     });
 
+    if (GlobalSettings.SimulatorMode) {
+      this.addRoute("post", "/cloneDataFromProductionService", async (_, res) => {
+        const result = await ImportExportHandler.getInstance().cloneDataFromProductionService();
+        if (result.isSuccess) {
+          res.status(201).json({ message: 'ok' });
+        } else {
+          res.status(500).json({ message: `Internal Server Error: ${result.message}` });
+        }
+      });
+    }
+
+
     if (GlobalSettings.EnableTestingEndpoints) {
       this.registerTestingEndpoints();
     }
@@ -242,6 +254,8 @@ export default class DataService extends IRequestHandler {
     for (const uniqueLabelName of uniqueLabelNames) {
       const dataType = await this.getEndpointDataType(uniqueLabelName);
       if (dataType) {
+        // only keep the latest schema for each status in the datatype
+        // TODO
         endpointDataTypeMap[uniqueLabelName] = dataType;
       }
     }

@@ -30,8 +30,6 @@ export default class DependencyGraphSimulator extends Simulator {
       };
     } else {
       const endpointDependencies = this.parsedYamlToEndpointDependency(parsedYAML)
-      console.log("endpointDependencies");
-      console.log(JSON.stringify(endpointDependencies,null,2))
       return {
         validationErrorMessage,
         graph: new EndpointDependencies(endpointDependencies).toGraphData(),
@@ -165,14 +163,16 @@ export default class DependencyGraphSimulator extends Simulator {
 
   extractEndpointsInfo(
     endpointsInfo: TSimulationNamespace[],
-    convertDate: number
+    convertDate: number,
+    existingUniqueEndpointNameMappings: Map<string, string>
   ): {
     endpointInfoSet: Map<string, TEndpointInfo>;
   } {
 
     const endpointInfoSet = new Map<string, TEndpointInfo>();
     const processedUniqueServiceNameSet = new Set<string>();
-
+    
+    console.log("existingUniqueEndpointNameMappings = ", JSON.stringify([...existingUniqueEndpointNameMappings.entries()]));
     for (const ns of endpointsInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
@@ -183,11 +183,17 @@ export default class DependencyGraphSimulator extends Simulator {
           processedUniqueServiceNameSet.add(uniqueServiceName);
 
           for (const ep of ver.endpoints) {
-            const host = `http://${svc.serviceName}.${ns.namespace}.svc.cluster.local`;
+            
             const { path, method } = ep.endpointInfo;
-            const url = `${host}${path}`; // port default 80
             const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
-            const uniqueEndpointName = `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
+            const uniqueEndpointName = this.generateUniqueEndpointName(
+              uniqueServiceName,
+              svc.serviceName,
+              ns.namespace,
+              methodUpperCase,
+              path,
+              existingUniqueEndpointNameMappings
+            )
 
             // create TEndpointInfo and insert into endpointInfoSet(used to create endpointDependencies)
             endpointInfoSet.set(ep.endpointUniqueId, {
@@ -197,10 +203,10 @@ export default class DependencyGraphSimulator extends Simulator {
               namespace: ns.namespace,
               version: ver.version,
               labelName: path,
-              url,
-              host,
+              url:"",
+              host:"",
               path,
-              port: "80",
+              port: "",
               method: methodUpperCase,
               clusterName: "cluster.local",
               timestamp: convertDate,
@@ -238,13 +244,7 @@ export default class DependencyGraphSimulator extends Simulator {
         distance: number;
         type: T;
       }[] = [];
-
-      // console.log("===============================")
-      // console.log("start=",start);
-      // console.log("graph=",graph);
-      // console.log("type=",type)
-      // console.log("===============================")
-
+      
       let head = 0;
       while (head != queue.length) {
         const [curr, distance] = queue[head++];
@@ -290,10 +290,16 @@ export default class DependencyGraphSimulator extends Simulator {
 
   private parsedYamlToEndpointDependency(parsedYAML: TSimulationYAML){
     const convertDate = Date.now();
+
+    const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
   
     const {
       endpointInfoSet
-    } = this.extractEndpointsInfo(parsedYAML.endpointsInfo,convertDate);
+    } = this.extractEndpointsInfo(
+      parsedYAML.endpointsInfo,
+      convertDate,
+      existingUniqueEndpointNameMappings
+    );
 
     const {
       dependOnMap,
@@ -310,6 +316,9 @@ export default class DependencyGraphSimulator extends Simulator {
     return endpointDependencies;
 
   }
+
+
+
 
 
 

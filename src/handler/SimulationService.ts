@@ -71,11 +71,6 @@ export default class SimulationService extends IRequestHandler {
             } else if (result.convertingErrorMessage) {
               return res.status(500).json({ message: result.convertingErrorMessage });
             } else {
-              // console.log(`rlDataList = ${JSON.stringify(result.rlDataList,null,2)}\n=======\n`);
-              // console.log(`dependencies = ${JSON.stringify(result.endpointDependencies,null,2)}\n=======\n`);
-              // console.log(`dataType = ${JSON.stringify(result.dataType,null,2)}\n=======\n`);
-              // console.log(`replicaCount = ${JSON.stringify(result.replicaCountList,null,2)}\n=======\n`);
-
               //update to cache and create historical and aggregatedData
               try {
                 ServiceOperator.getInstance().postSimulationRetrieve({

@@ -1,5 +1,7 @@
 import yaml from "js-yaml";
 import { TSimulationYAML, simulationYAMLSchema } from "../../entities/TSimulationYAML";
+import { CLabelMapping } from "../../classes/Cacheable/CLabelMapping";
+import DataCache from "../../services/DataCache";
 
 export default class Simulator {
 
@@ -201,5 +203,60 @@ export default class Simulator {
       return null;  // Default case (e.g., if the user inputs "strings" instead of "string", it will be parsed as null)
     }
 
+  }
+
+
+  protected getExistingUniqueEndpointNameMappings(): Map<string, string> {
+    const entries = DataCache.getInstance()
+      .get<CLabelMapping>("LabelMapping")
+      .getData()
+      ?.entries();
+
+    const mapping = new Map<string, string>();
+    if (!entries) return mapping;
+
+    for (const [uniqueEndpointName] of entries) {
+
+      // try to remove the host part from the URL in uniqueEndpointName
+      const parts = uniqueEndpointName.split("\t");
+      if (parts.length != 5) continue;
+
+      const url = parts[4];
+      const path = this.getPathFromUrl(url);
+
+      parts[4] = path;
+      const key = parts.join("\t");
+
+      mapping.set(key, uniqueEndpointName);
+    }
+
+    return mapping;
+  }
+
+  protected generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string, existingUniqueEndpointNameMappings: Map<string, string>) {
+    const existing = existingUniqueEndpointNameMappings.get(`${uniqueServiceName}\t${methodUpperCase}\t${path}`);
+    
+    if (existing) {
+      console.log("existinggg:")
+      console.log(existing)
+      return existing;
+    } else {
+      console.log("not existinggg:")
+      console.log("existingUniqueEndpointNameMappings = ", JSON.stringify([...existingUniqueEndpointNameMappings.entries()]));
+      console.log("not  keyy:")
+      console.log(`${uniqueServiceName}\t${methodUpperCase}\t${path}`)
+      console.log("\n\n")
+      const host = `http://${serviceName}.${namespace}.svc.cluster.local`;
+      const url = `${host}${path}`; // port default 80
+      return `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
+    }
+  }
+
+  protected getPathFromUrl(url: string) {
+    try {
+      return new URL(url).pathname;
+    } catch {
+      return "/";
+    }
   }
 }
