@@ -173,7 +173,6 @@ export default class StaticSimulator extends Simulator {
               path,
               existingUniqueEndpointNameMappings
             )
-            console.log("uniqueEndpointName=",uniqueEndpointName)
             // create a realtimeData
             this.collectEndpointRealtimeData(
               sampleRlDataList,

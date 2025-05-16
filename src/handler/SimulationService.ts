@@ -57,7 +57,7 @@ export default class SimulationService extends IRequestHandler {
       async (req, res) => {
         const { yamlData } = req.body as { yamlData: string };
         const simulator = StaticSimulator.getInstance();
-        const decodedYAMLData = yamlData ? decodeURIComponent(yamlData) : '';
+        const decodedYAMLData = yamlData ? yamlData : '';
         const isEmptyYAML = !decodedYAMLData.trim();
         if (isEmptyYAML) {
           return res.status(201).json({ message: "Received an empty YAML. Skipping data retrieval." });

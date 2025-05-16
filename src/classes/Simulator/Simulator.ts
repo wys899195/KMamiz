@@ -112,8 +112,6 @@ export default class Simulator {
           warningMessage: "Unrecognized format. Please provide a valid JSON sample or a type definition using only primitive types like string, number, or boolean (e.g., { name: string, age: number })."
         };
       }
-      console.log(" inputType =", inputType);
-      console.log(" parsedBody =", JSON.stringify(parsedBody, null, 2));
       const processedBody = inputType === "sample" ?
         this.deIdentifyJsonSample(parsedBody) :
         this.deIdentifyJsonTypeDefinition(parsedBody);
@@ -151,6 +149,7 @@ export default class Simulator {
     const trimmed = input.trim();
     return !this.isJsonSample(input) && /:\s*(string|number|boolean|\{|\[)/i.test(trimmed);
   }
+
 
   //Convert TypeScript-like type definitions (interface-style structures) into JSON format string.
   private convertUserDefinedTypeToJson(input: string): string {
@@ -319,8 +318,6 @@ export default class Simulator {
     const existing = existingUniqueEndpointNameMappings.get(`${uniqueServiceName}\t${methodUpperCase}\t${path}`);
 
     if (existing) {
-      console.log("existinggg:")
-      console.log(existing)
       return existing;
     } else {
       const host = `http://${serviceName}.${namespace}.svc.cluster.local`;

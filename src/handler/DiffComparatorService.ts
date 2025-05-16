@@ -39,8 +39,6 @@ export default class DiffComparatorService extends IRequestHandler {
         const instabilityData = this.graphHandler.getServiceInstability();
         const endpointDataTypeMap = await this.dataHandler.getEndpointDataTypesMap(graphData.nodes.map(node => node.id));
 
-        console.log("endpointDataTypeMapendpointDataTypeMapss")
-        console.log(endpointDataTypeMap)
         if (!graphData || !cohesionData || !couplingData || !instabilityData || !endpointDataTypeMap) {
           res.sendStatus(500);
         } else {
@@ -169,9 +167,6 @@ export default class DiffComparatorService extends IRequestHandler {
     const diffData = DataCache.getInstance()
       .get<CTaggedDiffData>("TaggedDiffDatas")
       .getDataByTag(tag);
-
-    console.log("diffData?.endpointDataTypesMap")
-    console.log(diffData?.endpointDataTypesMap)
 
     return diffData?.endpointDataTypesMap || {};
   }

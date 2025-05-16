@@ -172,7 +172,6 @@ export default class DependencyGraphSimulator extends Simulator {
     const endpointInfoSet = new Map<string, TEndpointInfo>();
     const processedUniqueServiceNameSet = new Set<string>();
     
-    console.log("existingUniqueEndpointNameMappings = ", JSON.stringify([...existingUniqueEndpointNameMappings.entries()]));
     for (const ns of endpointsInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
