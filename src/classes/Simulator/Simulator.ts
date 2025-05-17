@@ -72,7 +72,7 @@ export default class Simulator {
                 if (response.responseContentType == "application/json") {
                   const result = this.preprocessJsonBody(response.responseBody);
                   if (!result.isSuccess) {
-                    errorMessages.push(`Invalid responseBody in endpoint ${endpoint.endpointUniqueId}: ${result.warningMessage}`);
+                    errorMessages.push(`Invalid responseBody(status:${response.status}) in endpoint ${endpoint.endpointUniqueId}: ${result.warningMessage}`);
                   } else {
                     response.responseBody = result.processedBodyString;
                   }
@@ -147,7 +147,7 @@ export default class Simulator {
 
   private isTypeDefinition(input: string): boolean {
     const trimmed = input.trim();
-    return !this.isJsonSample(input) && /:\s*(string|number|boolean|\{|\[)/i.test(trimmed);
+    return !this.isJsonSample(input) && /:\s*(string|number|boolean|unknown|\{|\[)/i.test(trimmed);
   }
 
 

@@ -22,6 +22,7 @@ const GraphDataSchema: SchemaDefinitionProperty<TGraphData> = {
           target: { type: String, required: true },
         }
       ],
+      usageStatus: { type: String, required: true },
     }
   ],
   links: [

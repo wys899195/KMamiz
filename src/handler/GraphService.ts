@@ -111,23 +111,10 @@ export default class GraphService extends IRequestHandler {
     });
   }
   async getDependencyGraph(namespace?: string) {
-    const rootNode: TGraphData = {
-      nodes: [
-        {
-          id: "null",
-          group: "null",
-          name: "external requests",
-          dependencies: [],
-          linkInBetween: [],
-          usageStatus: "Active"
-        }
-      ],
-      links: []
-    }
     return DataCache.getInstance()
       .get<CLabeledEndpointDependencies>("LabeledEndpointDependencies")
       .getData(namespace)
-      ?.toGraphData() || rootNode;
+      ?.toGraphData() || this.getEmptyGraphData();
   }
 
   async getServiceDependencyGraph(namespace?: string) {
