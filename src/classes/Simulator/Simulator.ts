@@ -3,7 +3,7 @@ import { TSimulationYAML, simulationYAMLSchema } from "../../entities/TSimulatio
 import { CLabelMapping } from "../../classes/Cacheable/CLabelMapping";
 import DataCache from "../../services/DataCache";
 
-type BodyInputType = "sample" | "typeDefinition" | "unknown";
+type BodyInputType = "sample" | "typeDefinition" | "empty" | "unknown";
 
 export default class Simulator {
 
@@ -105,6 +105,8 @@ export default class Simulator {
       } else if (inputType === "typeDefinition") {
         const jsonStr = this.convertUserDefinedTypeToJson(bodyString);
         parsedBody = JSON.parse(jsonStr);
+      } else if (inputType === "empty") {
+        parsedBody = {};
       } else {
         return { // unknown input, will call user to re-input
           isSuccess: false,
@@ -133,6 +135,7 @@ export default class Simulator {
   private classifyBodyInputType(input: string): BodyInputType {
     if (this.isJsonSample(input)) return "sample";
     if (this.isTypeDefinition(input)) return "typeDefinition";
+    if (input.trim() === '') return "empty";
     return "unknown";
   }
 
@@ -147,7 +150,7 @@ export default class Simulator {
 
   private isTypeDefinition(input: string): boolean {
     const trimmed = input.trim();
-    return !this.isJsonSample(input) && /:\s*(string|number|boolean|unknown|\{|\[)/i.test(trimmed);
+    return !this.isJsonSample(input) && /:\s*(string|number|boolean|null|unknown|\{|\[)/i.test(trimmed);
   }
 
 

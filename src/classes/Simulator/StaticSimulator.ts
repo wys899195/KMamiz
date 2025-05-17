@@ -424,6 +424,7 @@ export default class StaticSimulator extends Simulator {
 
   // Convert the requestSample in endpointDataType to UserDefinedType in yaml
   private convertSampleToUserDefinedType(obj: any, indentLevel = 0): string {
+    if (JSON.stringify(obj) === '{}') return '{}';
     const indent = '  '.repeat(indentLevel);
     const nextIndent = '  '.repeat(indentLevel + 1);
 
@@ -456,8 +457,10 @@ export default class StaticSimulator extends Simulator {
       return 'number';
     } else if (typeof obj === 'boolean') {
       return 'boolean';
+    } else if (obj === null) {
+      return 'null';
     } else {
-      return 'unknown'; // 
+      return 'unknown';
     }
   }
 
