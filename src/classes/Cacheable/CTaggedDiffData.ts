@@ -9,9 +9,17 @@ export class CTaggedDiffData extends Cacheable<TTaggedDiffData[]> {
   constructor(initData?: TTaggedDiffData[]) {
     super("TaggedDiffDatas", initData);
     this.setInit(async () => {
-      this.setData(
-        await MongoOperator.getInstance().findAll(TaggedDiffDataModel)
-      );
+      const raw = await MongoOperator.getInstance().findAll(TaggedDiffDataModel);
+      const processed = raw.map(doc => {
+        // console.log("isMap =",doc.endpointDataTypesMap instanceof Map);
+        // console.log("doc.endpointDataTypesMap =",doc.endpointDataTypesMap instanceof Map ? Object.fromEntries(doc.endpointDataTypesMap) : doc.endpointDataTypesMap);
+        return {
+          ...doc,
+          endpointDataTypesMap: doc.endpointDataTypesMap instanceof Map ? Object.fromEntries(doc.endpointDataTypesMap) : doc.endpointDataTypesMap,
+        };
+      });
+    
+      this.setData(processed);
     });
     this.setSync(async () => {
       const tagged = this.getData();

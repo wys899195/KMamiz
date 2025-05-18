@@ -21,6 +21,6 @@ export type TTaggedDiffDataWithTwoGraph = {
   cohesionData:TTotalServiceInterfaceCohesion[];
   couplingData:TServiceCoupling[];
   instabilityData:TServiceInstability[];
-  endpointDataTypes: Record<string, TEndpointDataType>;
+  endpointDataTypesMap: Record<string, TEndpointDataType>;
 };
 

@@ -145,7 +145,7 @@ export default class DiffComparatorService extends IRequestHandler {
         cohesionData: diffData?.cohesionData || [],
         couplingData: diffData?.couplingData || [],
         instabilityData: diffData?.instabilityData || [],
-        endpointDataTypes: endpointDataTypesMap,
+        endpointDataTypesMap: endpointDataTypesMap,
       };
     } else {// latest version
       const endpointGraph = await this.graphHandler.getDependencyGraph();
@@ -161,7 +161,7 @@ export default class DiffComparatorService extends IRequestHandler {
         cohesionData: this.graphHandler.getServiceCohesion(),
         couplingData: this.graphHandler.getServiceCoupling(),
         instabilityData: this.graphHandler.getServiceInstability(),
-        endpointDataTypes: endpointDataTypesMap,
+        endpointDataTypesMap: endpointDataTypesMap,
       };
     }
   }
