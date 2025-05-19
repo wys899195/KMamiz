@@ -131,14 +131,12 @@ export default class Simulator {
       };
     }
   }
-
   private classifyBodyInputType(input: string): BodyInputType {
     if (this.isJsonSample(input)) return "sample";
     if (this.isTypeDefinition(input)) return "typeDefinition";
     if (input.trim() === '') return "empty";
     return "unknown";
   }
-
   private isJsonSample(input: string): boolean {
     try {
       const parsed = JSON.parse(input);
@@ -147,13 +145,10 @@ export default class Simulator {
       return false;
     }
   }
-
   private isTypeDefinition(input: string): boolean {
     const trimmed = input.trim();
-    return !this.isJsonSample(input) && /:\s*(string|number|boolean|null|unknown|\{|\[)/i.test(trimmed);
+    return !this.isJsonSample(input) && /:\s*(string|number|boolean|null|any|\{|\[)/i.test(trimmed);
   }
-
-
   //Convert TypeScript-like type definitions (interface-style structures) into JSON format string.
   private convertUserDefinedTypeToJson(input: string): string {
     // Remove extra whitespace for easier processing
@@ -171,8 +166,7 @@ export default class Simulator {
 
     return input;
   }
-
-  //(for convertUserDefinedTypeToJson)Parse object properties
+  //(for convert User Defined Type To Json)Parse object properties
   private parseProperties(input: string): string {
     const properties: string[] = [];
     let currentProperty = '';
@@ -203,8 +197,7 @@ export default class Simulator {
 
     return properties.join(', ');
   }
-
-  //(for convertUserDefinedTypeToJson)Parse a single property
+  //(for convert User Defined Type To Json)Parse a single property
   private parseProperty(input: string): string {
     // Split property name and type
     const colonIndex = input.indexOf(':');
@@ -215,48 +208,48 @@ export default class Simulator {
 
     return `"${propertyName}": ${this.parseType(propertyType)}`;
   }
-
-  //(for convertUserDefinedTypeToJson)Parse type definition
+  //(for convert User Defined Type To Json)Parse type definition
   private parseType(type: string): string {
-
-    // Handle array type - extract array notations first
+    // Extract array notations and base type
     let arrayNotations = '';
     let baseType = type;
 
-    // Extract all array markers and get base type
     while (baseType.endsWith('[]')) {
       arrayNotations = '[]' + arrayNotations;
       baseType = baseType.substring(0, baseType.length - 2);
     }
 
-    // Handle object type (which may also have array markers)
+    // If baseType is 'any' and has array notations, build nested empty arrays
+    if (baseType === 'any' && arrayNotations) {
+      let emptyArray = '[]';
+      const depth = arrayNotations.length / 2;  // number of []
+      for (let i = 1; i < depth; i++) {
+        emptyArray = `[${emptyArray}]`;
+      }
+      return emptyArray;
+    }
+
+    // Handle object type (nested) ...
     if (baseType.startsWith('{') && baseType.endsWith('}')) {
       let result = this.convertUserDefinedTypeToJson(baseType);
-
-      // Wrap with array brackets if array notations exist
       for (let i = 0; i < arrayNotations.length / 2; i++) {
         result = `[${result}]`;
       }
-
       return result;
     }
 
-    // Handle primitive types with array notation
+    // Handle other primitives with arrays
     if (arrayNotations) {
       let result = `"${baseType}"`;
-
-      // Add nesting level for arrays
       for (let i = 0; i < arrayNotations.length / 2; i++) {
         result = `[${result}]`;
       }
-
       return result;
     }
 
-    // Default case
+    // Default primitive
     return `"${type}"`;
   }
-
   private deIdentify(
     input: any,
     isTypeDefinition: boolean
@@ -286,10 +279,11 @@ export default class Simulator {
   private deIdentifyJsonTypeDefinition(obj: any): any {
     return this.deIdentify(obj, true);
   }
-
   private deIdentifyJsonSample(input: any): any {
     return this.deIdentify(input, false);
   }
+
+
   protected getExistingUniqueEndpointNameMappings(): Map<string, string> {
     const entries = DataCache.getInstance()
       .get<CLabelMapping>("LabelMapping")
@@ -316,7 +310,6 @@ export default class Simulator {
 
     return mapping;
   }
-
   protected generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string, existingUniqueEndpointNameMappings: Map<string, string>) {
     const existing = existingUniqueEndpointNameMappings.get(`${uniqueServiceName}\t${methodUpperCase}\t${path}`);
 

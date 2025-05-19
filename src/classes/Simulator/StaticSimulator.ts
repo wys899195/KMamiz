@@ -443,7 +443,7 @@ export default class StaticSimulator extends Simulator {
         const elementType = this.convertSampleToUserDefinedType(obj[0], indentLevel);
         return `${elementType}[]`;
       } else {
-        return 'unknown[]';
+        return 'any[]';
       }
     } else if (obj !== null && typeof obj === 'object') {
       const properties: string[] = [];
@@ -467,10 +467,8 @@ export default class StaticSimulator extends Simulator {
       return 'number';
     } else if (typeof obj === 'boolean') {
       return 'boolean';
-    } else if (obj === null) {
-      return 'null';
     } else {
-      return 'unknown';
+      return 'null';
     }
   }
 
