@@ -1,6 +1,6 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
-import { TTaggedDiffData,TTaggedDiffDataWithTwoGraph } from "../entities/TTaggedDiffData";
+import { TTaggedDiffData} from "../entities/TTaggedDiffData";
 import DataCache from "../services/DataCache";
 import GlobalSettings from "../../src/GlobalSettings";
 import KubernetesService from "../services/KubernetesService";
@@ -129,19 +129,18 @@ export default class DiffComparatorService extends IRequestHandler {
       .delete(tag);
   }
 
-  async getTaggedDiffData(tag: string):Promise<TTaggedDiffDataWithTwoGraph> {
+  async getTaggedDiffData(tag: string):Promise<TTaggedDiffData> {
     if (tag) {
       const diffData = DataCache.getInstance()
         .get<CTaggedDiffData>("TaggedDiffDatas")
         .getDataByTag(tag);
 
       const endpointGraph = diffData?.graphData || this.graphHandler.getEmptyGraphData();
-      const serviceGraph = this.graphHandler.toServiceDependencyGraph(endpointGraph);
       const endpointDataTypesMap = diffData?.endpointDataTypesMap || {};
 
       return {
-        endpointGraph,
-        serviceGraph,
+        tag:tag,
+        graphData:endpointGraph,
         cohesionData: diffData?.cohesionData || [],
         couplingData: diffData?.couplingData || [],
         instabilityData: diffData?.instabilityData || [],
@@ -149,15 +148,14 @@ export default class DiffComparatorService extends IRequestHandler {
       };
     } else {// latest version
       const endpointGraph = await this.graphHandler.getDependencyGraph();
-      const serviceGraph = await this.graphHandler.getServiceDependencyGraph();
       const nodeIds = endpointGraph.nodes
         .filter((node) => node.id !== node.group)
         .map((node) => node.id);
       const endpointDataTypesMap = await this.dataHandler.getEndpointDataTypesMap(nodeIds);
 
       return {
-        endpointGraph,
-        serviceGraph,
+        tag:tag,
+        graphData:endpointGraph,
         cohesionData: this.graphHandler.getServiceCohesion(),
         couplingData: this.graphHandler.getServiceCoupling(),
         instabilityData: this.graphHandler.getServiceInstability(),

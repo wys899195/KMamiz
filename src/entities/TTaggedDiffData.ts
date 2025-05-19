@@ -14,13 +14,3 @@ export type TTaggedDiffData = {
   instabilityData:TServiceInstability[];
   endpointDataTypesMap: Record<string, TEndpointDataType>;
 };
-
-export type TTaggedDiffDataWithTwoGraph = {
-  endpointGraph: TGraphData | null;
-  serviceGraph: TGraphData | null;
-  cohesionData:TTotalServiceInterfaceCohesion[];
-  couplingData:TServiceCoupling[];
-  instabilityData:TServiceInstability[];
-  endpointDataTypesMap: Record<string, TEndpointDataType>;
-};
-
