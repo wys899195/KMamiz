@@ -259,7 +259,17 @@ export default class StaticSimulator extends Simulator {
       endpointDependencies: endpointDependenciesYaml
     }
 
-    return yaml.dump(StaticSimulationYaml, { lineWidth: -1 });
+    return this.formatEmptyJsonBodiesToMultilineYaml(
+      yaml.dump(StaticSimulationYaml, { lineWidth: -1 })
+    );
+  }
+
+  private formatEmptyJsonBodiesToMultilineYaml(rawYamlStr: string): string {
+    //improves readability and makes it easier for users to edit the body manually.
+    return rawYamlStr.replace(
+      /^(\s*)(requestBody|responseBody): '{}'/gm,
+      `$1$2: |-\n$1  {\n\n$1  }`
+    );
   }
 
   private buildEndpointsInfoYaml(
