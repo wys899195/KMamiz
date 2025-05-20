@@ -1,5 +1,4 @@
 import { Schema, SchemaDefinitionProperty, model } from "mongoose";
-import { EndpointDataTypeSchema } from "./EndpointDataTypeSchema";
 import { TTaggedDiffData } from "../TTaggedDiffData";
 import { TGraphData } from "../TGraphData";
 import { TServiceCoupling } from "../TServiceCoupling";
@@ -22,6 +21,7 @@ const GraphDataSchema: SchemaDefinitionProperty<TGraphData> = {
           target: { type: String, required: true },
         }
       ],
+      usageStatus: { type: String, required: true },
     }
   ],
   links: [
@@ -80,8 +80,7 @@ export const TaggedDiffDataSchema = new Schema<TTaggedDiffData>({
   couplingData: [ServiceCouplingSchema],
   instabilityData: [ServiceInstabilitySchema],
   endpointDataTypesMap: {
-    type: Map,
-    of: EndpointDataTypeSchema,
+    type: Object,
     required: true,
   }
 });

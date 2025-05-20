@@ -1,12 +1,15 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import DataCache from "../services/DataCache";
-import { TEndpointDataType } from "../entities/TEndpointDataType";
+import { TEndpointDataType, TEndpointDataSchema } from "../entities/TEndpointDataType";
 import { TEndpointLabel } from "../entities/TEndpointLabel";
 import { TTaggedInterface } from "../entities/TTaggedInterface";
+import { TServiceDisplayInfo } from "../entities/TServiceDisplayInfo";
+import { TEndpointDependency } from "../entities/TEndpointDependency";
 import { CLabelMapping } from "../classes/Cacheable/CLabelMapping";
 import { CUserDefinedLabel } from "../classes/Cacheable/CUserDefinedLabel";
 import { CTaggedInterfaces } from "../classes/Cacheable/CTaggedInterfaces";
 import { CEndpointDataType } from "../classes/Cacheable/CEndpointDataType";
+import { CLabeledEndpointDependencies } from "../classes/Cacheable/CLabeledEndpointDependencies";
 import ServiceUtils from "../services/ServiceUtils";
 import GlobalSettings from "../GlobalSettings";
 import { tgz } from "compressing";
@@ -31,6 +34,14 @@ export default class DataService extends IRequestHandler {
         )
       );
     });
+    this.addRoute("get", "/serviceDisplayInfo", async (req, res) => {
+      const filter = decodeURIComponent(req.query["filter"] as string);
+      res.json(
+        this.getServiceDisplayInfo(
+          filter
+        )
+      );
+    });
     this.addRoute("get", "/history/:namespace?", async (req, res) => {
       const notBeforeQuery = req.query["notBefore"] as string;
       const notBefore = notBeforeQuery ? parseInt(notBeforeQuery) : undefined;
@@ -51,19 +62,6 @@ export default class DataService extends IRequestHandler {
         else res.sendStatus(404);
       }
     });
-    this.addRoute("get", "/dataTypesMap", async (req, res) => {
-      const uniqueLabelNamesReq = req.query["labelNames"] as string[];
-      const uniqueLabelNames = Array.isArray(uniqueLabelNamesReq)
-        ? uniqueLabelNamesReq.map(decodeURIComponent)
-        : typeof uniqueLabelNamesReq === "string"
-          ? [decodeURIComponent(uniqueLabelNamesReq)]
-          : [];
-      if (!uniqueLabelNames) res.sendStatus(400);
-      else {
-        const result = await this.getEndpointDataTypesMap(uniqueLabelNames);
-        res.json(result);
-      }
-    });
 
     this.registerLabelEndpoints();
     this.registerInterfaceEndpoints();
@@ -82,6 +80,18 @@ export default class DataService extends IRequestHandler {
       stream.on("end", () => res.end());
       stream.pipe(res);
     });
+
+    if (GlobalSettings.SimulatorMode) {
+      this.addRoute("post", "/cloneDataFromProductionService", async (_, res) => {
+        const result = await ImportExportHandler.getInstance().cloneDataFromProductionService();
+        if (result.isSuccess) {
+          res.status(201).json({ message: 'ok' });
+        } else {
+          res.status(500).json({ message: `Internal Server Error: ${result.message}` });
+        }
+      });
+    }
+
 
     if (GlobalSettings.EnableTestingEndpoints) {
       this.registerTestingEndpoints();
@@ -205,6 +215,63 @@ export default class DataService extends IRequestHandler {
     };
   }
 
+  getServiceDisplayInfo(
+    filter?: string,
+  ) {
+    const existingLabeledDep: TEndpointDependency[] = DataCache.getInstance()
+      .get<CLabeledEndpointDependencies>("LabeledEndpointDependencies")
+      .getData()?.toJSON() || [];
+    if (existingLabeledDep.length === 0) {
+      return [];
+    }
+
+    const serviceMap = new Map<string, {
+      uniqueServiceName: string;
+      service: string;
+      namespace: string;
+      version: string;
+      endpointSet: Set<string>;
+    }>();
+
+
+    for (const dep of existingLabeledDep) {
+      const ep = dep.endpoint;
+
+      const key = ep.uniqueServiceName;
+      const labelOrPath = ep.labelName || ep.path;
+      const endpointKey = `${ep.version}\t${ep.method}\t${labelOrPath}`;
+
+      if (!serviceMap.has(key)) {
+        serviceMap.set(key, {
+          uniqueServiceName: ep.uniqueServiceName,
+          service: ep.service,
+          namespace: ep.namespace,
+          version: ep.version,
+          endpointSet: new Set(),
+        });
+      }
+
+      serviceMap.get(key)!.endpointSet.add(endpointKey);
+    }
+
+    const result: TServiceDisplayInfo[] = [];
+    for (const entry of serviceMap.values()) {
+      result.push({
+        uniqueServiceName: entry.uniqueServiceName,
+        service: entry.service,
+        namespace: entry.namespace,
+        version: entry.version,
+        endpointCount: entry.endpointSet.size,
+      });
+    }
+    if (filter) {
+      return result.filter((d) => d.uniqueServiceName.startsWith(filter));
+    }
+
+    return result;
+  }
+
+
   async getHistoricalData(namespace?: string, notBefore?: number) {
     return await ServiceUtils.getInstance().getRealtimeHistoricalData(
       namespace,
@@ -242,7 +309,29 @@ export default class DataService extends IRequestHandler {
     for (const uniqueLabelName of uniqueLabelNames) {
       const dataType = await this.getEndpointDataType(uniqueLabelName);
       if (dataType) {
-        endpointDataTypeMap[uniqueLabelName] = dataType;
+        // Deep copy dataType to avoid modifying the original object in cache
+        const clonedDataType: TEndpointDataType = JSON.parse(JSON.stringify(dataType));
+
+        // After merging schemas, keep only the most recent schema (by time) for each unique status
+        const latestSchemaMap: Record<string, TEndpointDataSchema> = {};
+
+        for (const schema of clonedDataType.schemas) {
+          const existing = latestSchemaMap[schema.status];
+          if (!existing || new Date(schema.time).getTime() > new Date(existing.time).getTime()) {
+            latestSchemaMap[schema.status] = schema;
+          }
+        }
+
+        // Remove requestSample and responseSample fields as they are not needed on the frontend
+        for (const schema of Object.values(latestSchemaMap)) {
+          delete schema.requestSample;
+          delete schema.responseSample;
+        }
+
+        clonedDataType.schemas = Object.values(latestSchemaMap);
+        endpointDataTypeMap[uniqueLabelName] = clonedDataType;
+      } else {
+        console.error("can not found datatype by name:", uniqueLabelName)
       }
     }
     return endpointDataTypeMap;

@@ -14,4 +14,3 @@ export type TTaggedDiffData = {
   instabilityData:TServiceInstability[];
   endpointDataTypesMap: Record<string, TEndpointDataType>;
 };
-

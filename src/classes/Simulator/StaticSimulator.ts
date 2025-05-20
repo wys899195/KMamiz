@@ -10,7 +10,7 @@ import {
   TSimulationEndpoint,
   TSimulationYAML
 } from "../../entities/TSimulationYAML";
-
+import DataCache from "../../services/DataCache";
 import { TRealtimeData } from "../../entities/TRealtimeData";
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointDependency } from "../../entities/TEndpointDependency";
@@ -23,7 +23,7 @@ import { RealtimeDataList } from "../RealtimeDataList";
 import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
 import { CEndpointDataType } from "../Cacheable/CEndpointDataType";
 import { CReplicas } from "../Cacheable/CReplicas";
-import DataCache from "../../services/DataCache";
+
 
 import Logger from "../../utils/Logger";
 
@@ -51,20 +51,29 @@ export default class StaticSimulator extends Simulator {
     }
 
     const convertDate = Date.now();
+    const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
+
     const {
       endpointInfoSet
-    } = DependencyGraphSimulator.getInstance().extractEndpointsInfo(parsedYAML.endpointsInfo, convertDate);
+    } = DependencyGraphSimulator.getInstance().extractEndpointsInfo(
+      parsedYAML.endpointsInfo, 
+      convertDate,
+      existingUniqueEndpointNameMappings
+    );
 
     const {
       sampleRlDataList,
       replicaCountList
-    } = this.extractSampleDataAndReplicaCount(parsedYAML.endpointsInfo, convertDate);
+    } = this.extractSampleDataAndReplicaCount(
+      parsedYAML.endpointsInfo, 
+      convertDate,
+      existingUniqueEndpointNameMappings
+    );
 
     const {
       dependOnMap,
       dependByMap
     } = DependencyGraphSimulator.getInstance().buildDependencyMaps(parsedYAML.endpointDependencies);
-    console.log(dependOnMap)
 
     const endpointDependencies = DependencyGraphSimulator.getInstance().createEndpointDependencies(
       convertDate,
@@ -74,7 +83,6 @@ export default class StaticSimulator extends Simulator {
     );
 
     try {
-      console.log(sampleRlDataList)
       return {
         validationErrorMessage: "",
         convertingErrorMessage: "",
@@ -121,7 +129,8 @@ export default class StaticSimulator extends Simulator {
 
   private extractSampleDataAndReplicaCount(
     endpointsInfo: TSimulationNamespace[],
-    convertDate: number
+    convertDate: number,
+    existingUniqueEndpointNameMappings: Map<string, string>
   ): {
     sampleRlDataList: TRealtimeData[];
     replicaCountList: TReplicaCount[];
@@ -129,6 +138,9 @@ export default class StaticSimulator extends Simulator {
     const sampleRlDataList: TRealtimeData[] = []; // to extract static data types even without traffic
     const replicaCountList: TReplicaCount[] = [];
     const processedUniqueServiceNameSet = new Set<string>();
+    
+    
+
 
     for (const ns of endpointsInfo) {
       for (const svc of ns.services) {
@@ -149,12 +161,18 @@ export default class StaticSimulator extends Simulator {
           });
 
           for (const ep of ver.endpoints) {
-            const host = `http://${svc.serviceName}.${ns.namespace}.svc.cluster.local`;
-            const { path, method } = ep.endpointInfo;
-            const url = `${host}${path}`; // port default 80
-            const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
-            const uniqueEndpointName = `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
 
+            const { path, method } = ep.endpointInfo;
+            const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
+
+            const uniqueEndpointName = this.generateUniqueEndpointName(
+              uniqueServiceName,
+              svc.serviceName,
+              ns.namespace,
+              methodUpperCase,
+              path,
+              existingUniqueEndpointNameMappings
+            )
             // create a realtimeData
             this.collectEndpointRealtimeData(
               sampleRlDataList,
@@ -214,7 +232,9 @@ export default class StaticSimulator extends Simulator {
     })));
   }
 
-  // Retrieve necessary data from kmamiz and convert it into a YAML file that can be used to generate static simulation data (such as software quality metrics, dependency graphs, endpoint data formats, etc.)
+
+  // Retrieve necessary data from kmamiz and convert it into a YAML file that can be used to generate static simulation data
+  // (such as software quality metrics, dependency graphs, endpoint data formats, etc.)
   generateStaticYamlFromCurrentData() {
     const existingEndpointDependencies = DataCache.getInstance()
       .get<CEndpointDependencies>("EndpointDependencies")
@@ -229,20 +249,30 @@ export default class StaticSimulator extends Simulator {
       .getData();
 
 
-    const { endpointsInfoYaml, endpointUniqueIdMap } = this.restoreEndpointsInfo(
+    const { endpointsInfoYaml, endpointUniqueIdMap } = this.buildEndpointsInfoYaml(
       existingDataTypes.map((d) => d.toJSON()),
       existingReplicaCountList
     );
-    const endpointDependenciesYaml = this.restoreEndpointDependencies(existingEndpointDependencies, endpointUniqueIdMap);
+    const endpointDependenciesYaml = this.buildEndpointDependenciesYaml(existingEndpointDependencies, endpointUniqueIdMap);
     const StaticSimulationYaml: TSimulationYAML = {
       endpointsInfo: endpointsInfoYaml,
       endpointDependencies: endpointDependenciesYaml
     }
 
-    return yaml.dump(StaticSimulationYaml, { lineWidth: -1 });
+    return this.formatEmptyJsonBodiesToMultilineYaml(
+      yaml.dump(StaticSimulationYaml, { lineWidth: -1 })
+    );
   }
 
-  private restoreEndpointsInfo(
+  private formatEmptyJsonBodiesToMultilineYaml(rawYamlStr: string): string {
+    //improves readability and makes it easier for users to edit the body manually.
+    return rawYamlStr.replace(
+      /^(\s*)(requestBody|responseBody): '{}'/gm,
+      `$1$2: |-\n$1  {\n\n$1  }`
+    );
+  }
+
+  private buildEndpointsInfoYaml(
     dataType: TEndpointDataType[],
     replicaCountList: TReplicaCount[],
   ): {
@@ -265,7 +295,6 @@ export default class StaticSimulator extends Simulator {
           namespace: dt.namespace,
           version: dt.version,
           method: dt.method,
-          labelName: dt.labelName,
           schemas: []
         });
       }
@@ -279,21 +308,11 @@ export default class StaticSimulator extends Simulator {
         namespace,
         version,
         method,
-        schemas,
-        labelName
+        schemas
       } = type;
 
       const url = uniqueEndpointName.split("\t")[4];
-      let path: string;
-      if (labelName) {
-        path = labelName;
-      } else {
-        try {
-          path = new URL(url).pathname;
-        } catch {
-          path = "/";
-        }
-      }
+      const path = this.getPathFromUrl(url)
 
       // Initialize namespace
       if (!namespacesMap[namespace]) {
@@ -356,11 +375,10 @@ export default class StaticSimulator extends Simulator {
           responses
         }
       };
-      // console.log(schemas[0]?.requestContentType)
       versionYaml.endpoints.push(endpoint);
     }
 
-    // Update replica counts
+    // Update replica counts to endpointsInfoYaml
     for (const replica of replicaCountList) {
       const { uniqueServiceName, replicas, namespace, version } = replica;
       const [serviceName] = uniqueServiceName.split("\t");
@@ -387,7 +405,7 @@ export default class StaticSimulator extends Simulator {
     };
   }
 
-  private restoreEndpointDependencies(
+  private buildEndpointDependenciesYaml(
     endpointDependencies: TEndpointDependency[],
     endpointIdMap: Map<string, string>
   ): TSimulationEndpointDependency[] {
@@ -416,6 +434,7 @@ export default class StaticSimulator extends Simulator {
 
   // Convert the requestSample in endpointDataType to UserDefinedType in yaml
   private convertSampleToUserDefinedType(obj: any, indentLevel = 0): string {
+    if (JSON.stringify(obj) === '{}') return '{}';
     const indent = '  '.repeat(indentLevel);
     const nextIndent = '  '.repeat(indentLevel + 1);
 
@@ -424,7 +443,7 @@ export default class StaticSimulator extends Simulator {
         const elementType = this.convertSampleToUserDefinedType(obj[0], indentLevel);
         return `${elementType}[]`;
       } else {
-        return 'unknown[]';
+        return 'any[]';
       }
     } else if (obj !== null && typeof obj === 'object') {
       const properties: string[] = [];
@@ -449,7 +468,9 @@ export default class StaticSimulator extends Simulator {
     } else if (typeof obj === 'boolean') {
       return 'boolean';
     } else {
-      return 'unknown'; // 
+      return 'null';
     }
   }
+
+
 }

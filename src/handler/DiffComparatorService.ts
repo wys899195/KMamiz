@@ -1,6 +1,6 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
-import { TTaggedDiffData } from "../entities/TTaggedDiffData";
+import { TTaggedDiffData} from "../entities/TTaggedDiffData";
 import DataCache from "../services/DataCache";
 import GlobalSettings from "../../src/GlobalSettings";
 import KubernetesService from "../services/KubernetesService";
@@ -16,18 +16,20 @@ export default class DiffComparatorService extends IRequestHandler {
     this.graphHandler = new GraphService();
     this.dataHandler = new DataService();
 
-    this.addRoute("get", "/taggedDependency", async (req, res) => {
-      const { tag } = req.query as { tag: string };
-      const decodedTag = tag && decodeURIComponent(tag);
 
-      res.json(await this.getTaggedDependencyGraphs(decodedTag));
-    });
-    this.addRoute("get", "/diffData/tags", async (req, res) => {
+    this.addRoute("get", "/tags", async (req, res) => {
       req = req; // to aviod compile error: 'req' is declared but its value is never read"
       res.json(this.getTagsOfDiffData());
     });
 
-    this.addRoute("post", "/diffData/tags", async (req, res) => {
+    this.addRoute("get", "/diffData", async (req, res) => {
+      const { tag } = req.query as { tag: string };
+      const decodedTag = tag && decodeURIComponent(tag);
+
+      res.json(await this.getTaggedDiffData(decodedTag));
+    });
+
+    this.addRoute("post", "/diffData", async (req, res) => {
       const { tag } = req.body as {
         tag: string;
       };
@@ -39,8 +41,6 @@ export default class DiffComparatorService extends IRequestHandler {
         const instabilityData = this.graphHandler.getServiceInstability();
         const endpointDataTypeMap = await this.dataHandler.getEndpointDataTypesMap(graphData.nodes.map(node => node.id));
 
-        console.log("endpointDataTypeMapendpointDataTypeMapss")
-        console.log(endpointDataTypeMap)
         if (!graphData || !cohesionData || !couplingData || !instabilityData || !endpointDataTypeMap) {
           res.sendStatus(500);
         } else {
@@ -56,7 +56,7 @@ export default class DiffComparatorService extends IRequestHandler {
                 instabilityData: instabilityData,
                 endpointDataTypesMap: endpointDataTypeMap,
               }
-              const resFromProductionMode = await fetch(`${productionServiceBaseURL}/api/v1/diffComparator/diffData/tagged/tags`, {
+              const resFromProductionMode = await fetch(`${productionServiceBaseURL}/api/v1/diffComparator/diffData/simulator`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",
@@ -89,7 +89,7 @@ export default class DiffComparatorService extends IRequestHandler {
     });
 
     if (!GlobalSettings.SimulatorMode) {
-      this.addRoute("post", "/diffData/tagged/tags", async (req, res) => {
+      this.addRoute("post", "/diffData/simulator", async (req, res) => {
         const tagged = req.body as TTaggedDiffData;
         if (!tagged) res.sendStatus(400);
         else {
@@ -99,7 +99,7 @@ export default class DiffComparatorService extends IRequestHandler {
       });
     }
 
-    this.addRoute("delete", "/diffData/tags", async (req, res) => {
+    this.addRoute("delete", "/diffData", async (req, res) => {
       const { tag } = req.body as {
         tag: string;
       };
@@ -108,16 +108,6 @@ export default class DiffComparatorService extends IRequestHandler {
         this.deleteTaggedDiffData(tag);
         res.sendStatus(200);
       }
-    });
-
-    this.addRoute("get", "/taggedServiceInsights", async (req, res) => {
-      const { tag } = req.query as { tag: string };
-      res.json(this.getTaggedServiceInsights(tag));
-    });
-
-    this.addRoute("get", "/taggedDataTypesMap", async (req, res) => {
-      const { tag } = req.query as { tag: string };
-      res.json(this.getTaggedEndpointDataTypesMap(tag));
     });
   }
 
@@ -139,41 +129,39 @@ export default class DiffComparatorService extends IRequestHandler {
       .delete(tag);
   }
 
-  async getTaggedDependencyGraphs(tag: string) {
-    const diffData = DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .getDataByTag(tag);
+  async getTaggedDiffData(tag: string):Promise<TTaggedDiffData> {
+    if (tag) {
+      const diffData = DataCache.getInstance()
+        .get<CTaggedDiffData>("TaggedDiffDatas")
+        .getDataByTag(tag);
 
-    const endpointGraph = diffData?.graphData || this.graphHandler.getEmptyGraphData();
-    const serviceGraph = this.graphHandler.toServiceDependencyGraph(endpointGraph);
+      const endpointGraph = diffData?.graphData || this.graphHandler.getEmptyGraphData();
+      const endpointDataTypesMap = diffData?.endpointDataTypesMap || {};
 
-    return {
-      endpointGraph,
-      serviceGraph,
-    };
-  }
+      return {
+        tag:tag,
+        graphData:endpointGraph,
+        cohesionData: diffData?.cohesionData || [],
+        couplingData: diffData?.couplingData || [],
+        instabilityData: diffData?.instabilityData || [],
+        endpointDataTypesMap: endpointDataTypesMap,
+      };
+    } else {// latest version
+      const endpointGraph = await this.graphHandler.getDependencyGraph();
+      const nodeIds = endpointGraph.nodes
+        .filter((node) => node.id !== node.group)
+        .map((node) => node.id);
+      const endpointDataTypesMap = await this.dataHandler.getEndpointDataTypesMap(nodeIds);
 
-  getTaggedServiceInsights(tag: string) {
-    const diffData = DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .getDataByTag(tag);
-
-    return {
-      cohesionData: diffData?.cohesionData || [],
-      couplingData: diffData?.couplingData || [],
-      instabilityData: diffData?.instabilityData || [],
-    };
-  }
-
-  getTaggedEndpointDataTypesMap(tag: string) {
-    const diffData = DataCache.getInstance()
-      .get<CTaggedDiffData>("TaggedDiffDatas")
-      .getDataByTag(tag);
-
-    console.log("diffData?.endpointDataTypesMap")
-    console.log(diffData?.endpointDataTypesMap)
-
-    return diffData?.endpointDataTypesMap || {};
+      return {
+        tag:tag,
+        graphData:endpointGraph,
+        cohesionData: this.graphHandler.getServiceCohesion(),
+        couplingData: this.graphHandler.getServiceCoupling(),
+        instabilityData: this.graphHandler.getServiceInstability(),
+        endpointDataTypesMap: endpointDataTypesMap,
+      };
+    }
   }
 
 }
