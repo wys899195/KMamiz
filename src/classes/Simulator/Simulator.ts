@@ -59,20 +59,21 @@ export default class Simulator {
         service.versions.forEach(version => {
           version.version = String(version.version);
           version.endpoints.forEach(endpoint => {
+            endpoint.endpointId = String(endpoint.endpointId);
             if (endpoint.datatype) {
               if (endpoint.datatype.requestContentType == "application/json") {
                 const result = this.preprocessJsonBody(endpoint.datatype.requestBody);
                 if (!result.isSuccess) {
-                  errorMessages.push(`Invalid requestBody in endpoint ${endpoint.endpointUniqueId}: ${result.warningMessage}`);
+                  errorMessages.push(`Invalid requestBody in endpoint ${endpoint.endpointId}: ${result.warningMessage}`);
                 } else {
                   endpoint.datatype.requestBody = result.processedBodyString;
                 }
               }
               endpoint.datatype.responses.forEach(response => {
-                if (response.responseContentType == "application/json") {
+                if (response.responseContentType === "application/json") {
                   const result = this.preprocessJsonBody(response.responseBody);
                   if (!result.isSuccess) {
-                    errorMessages.push(`Invalid responseBody(status:${response.status}) in endpoint ${endpoint.endpointUniqueId}: ${result.warningMessage}`);
+                    errorMessages.push(`Invalid responseBody(status:${response.status}) in endpoint ${endpoint.endpointId}: ${result.warningMessage}`);
                   } else {
                     response.responseBody = result.processedBodyString;
                   }
@@ -82,6 +83,20 @@ export default class Simulator {
           });
         });
       });
+    });
+
+    parsedYAML.endpointDependencies?.forEach(dep => {
+      dep.endpointId = String(dep.endpointId);
+      dep.dependOn.forEach(d => {
+        d.endpointId = String(d.endpointId);
+      });
+    });
+
+    parsedYAML.endpointMetrics?.info.forEach(m => {
+      m.endpointId = String(m.endpointId);
+    });
+    parsedYAML.endpointMetrics?.requests.forEach(r => {
+      r.endpointId = String(r.endpointId);
     });
 
     return errorMessages;
@@ -289,25 +304,18 @@ export default class Simulator {
       .get<CLabelMapping>("LabelMapping")
       .getData()
       ?.entries();
-
     const mapping = new Map<string, string>();
     if (!entries) return mapping;
-
     for (const [uniqueEndpointName] of entries) {
-
       // try to remove the host part from the URL in uniqueEndpointName
       const parts = uniqueEndpointName.split("\t");
       if (parts.length != 5) continue;
-
       const url = parts[4];
       const path = this.getPathFromUrl(url);
-
       parts[4] = path;
       const key = parts.join("\t");
-
       mapping.set(key, uniqueEndpointName);
     }
-
     return mapping;
   }
   protected generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string, existingUniqueEndpointNameMappings: Map<string, string>) {

@@ -23,9 +23,9 @@ export const simulationEndpointInfoSchema = z.object({
 }).strict();
 
 export const simulationEndpointSchema = z.object({
-  endpointUniqueId: z.preprocess(
+  endpointId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
+    z.string().min(1, { message: "endpointId cannot be empty." })
   ),
   endpointInfo: simulationEndpointInfoSchema,
   datatype: simulationEndpointDatatypeSchema.optional(),
@@ -54,46 +54,57 @@ export const simulationNamespaceSchema = z.object({
 }).strict();
 
 export const simulationDependOnSchema = z.object({
-  endpointUniqueId: z.preprocess(
+  endpointId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
+    z.string().min(1, { message: "endpointId cannot be empty." })
   ),
   callRate: z.number().refine(
     (val) => val >= 0 && val <= 100,
-    { message: "Invalid errorRate. It must be between 0 and 100." }
+    { message: "Invalid callRate. It must be between 0 and 100." }
   ).optional(),
 });
 
 
 export const simulationEndpointDependencySchema = z.object({
-  endpointUniqueId: z.preprocess(
+  endpointId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
+    z.string().min(1, { message: "endpointId cannot be empty." })
   ),
   dependOn: z.array(simulationDependOnSchema),
 })
   .strict();
 
-
-export const simulationEndpointMetricSchema = z.object({
-  endpointUniqueId: z.preprocess(
+export const simulationEndpointMetricInfoSchema = z.object({
+  endpointId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointUniqueId cannot be empty." })
+    z.string().min(1, { message: "endpointId cannot be empty." })
   ),
   latencyMs: z.number().min(0, { message: "latencyMs must be zero or greater." }),
-  errorRate: z.number().refine(
-    (val) => val >= 0 && val <= 100,
-    { message: "Invalid errorRate. It must be between 0 and 100." }
-  ).optional(),
-  requestCount: z.number()
+  errorRate: z
+    .number()
+    .refine((val) => val >= 0 && val <= 100, {
+      message: "Invalid errorRate. It must be between 0 and 100.",
+    }).optional(),
+}).strict();
+
+export const simulationEndpointRequestCountSchema = z.object({
+  endpointId: z.preprocess(
+    (val) => (typeof val === "number" ? val.toString() : val),
+    z.string().min(1, { message: "endpointId cannot be empty." })
+  ),
+  requestCount: z
+    .number()
     .int({ message: "requestCount must be an integer." })
-    .min(0, { message: "requestCount cannot be negative." }).optional(),
+    .min(0, { message: "requestCount cannot be negative." }),
 }).strict();
 
 export const simulationYAMLSchema = z.object({
   endpointsInfo: z.array(simulationNamespaceSchema),
   endpointDependencies: z.array(simulationEndpointDependencySchema),
-  endpointMetrics: z.array(simulationEndpointMetricSchema).optional(),
+  endpointMetrics: z.object({
+    info: z.array(simulationEndpointMetricInfoSchema),
+    requests: z.array(simulationEndpointRequestCountSchema),
+  }).optional(),
 }).strict();
 
 export type TSimulationResponseBody = z.infer<typeof simulationResponseBodySchema>;
@@ -105,6 +116,7 @@ export type TSimulationService = z.infer<typeof simulationServiceSchema>;
 export type TSimulationNamespace = z.infer<typeof simulationNamespaceSchema>;
 export type TSimulationDependOn = z.infer<typeof simulationDependOnSchema>;
 export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
-export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
+export type TSimulationEndpointMetricInfo = z.infer<typeof simulationEndpointMetricInfoSchema>;
+export type TSimulationEndpointRequestCount = z.infer<typeof simulationEndpointRequestCountSchema>;
 export type TSimulationYAML = z.infer<typeof simulationYAMLSchema>;
 

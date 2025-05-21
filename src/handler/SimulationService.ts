@@ -1,6 +1,6 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import DependencyGraphSimulator from "../classes/Simulator/DependencyGraphSimulator";
-import StaticSimulator from "../classes/Simulator/StaticSimulator";
+import TrafficSimulator from "../classes/Simulator/TrafficSimulator";
 import { TGraphData } from "../entities/TGraphData";
 import ServiceOperator from "../services/ServiceOperator";
 
@@ -56,7 +56,7 @@ export default class SimulationService extends IRequestHandler {
       "/retrieveDataByYAML",
       async (req, res) => {
         const { yamlData } = req.body as { yamlData: string };
-        const simulator = StaticSimulator.getInstance();
+        const simulator = TrafficSimulator.getInstance();
         const decodedYAMLData = yamlData ? yamlData : '';
         const isEmptyYAML = !decodedYAMLData.trim();
         if (isEmptyYAML) {
@@ -64,7 +64,7 @@ export default class SimulationService extends IRequestHandler {
         } else {
           try {
             //retrieve data from yaml
-            const result = simulator.yamlToSimulationStaticData(decodedYAMLData);
+            const result = simulator.yamlToSimulationData(decodedYAMLData);
 
             if (result.validationErrorMessage) {
               return res.status(400).json({ message: result.validationErrorMessage });
@@ -74,7 +74,7 @@ export default class SimulationService extends IRequestHandler {
               //update to cache and create historical and aggregatedData
               try {
                 ServiceOperator.getInstance().postSimulationRetrieve({
-                  rlDataList: [],
+                  rlDataList: result.cbRealtimeDataList,
                   dependencies: result.endpointDependencies,
                   dataType: result.dataType,
                   replicaCount: result.replicaCountList
@@ -98,7 +98,7 @@ export default class SimulationService extends IRequestHandler {
       "/generateStaticYaml",
       async (_, res) => {
         try {
-          const staticYamlStr = StaticSimulator.getInstance().generateStaticYamlFromCurrentData();
+          const staticYamlStr = TrafficSimulator.getInstance().generateStaticYamlFromCurrentData();
           return res.status(200).json({
             staticYamlStr: staticYamlStr,
             message: "ok"

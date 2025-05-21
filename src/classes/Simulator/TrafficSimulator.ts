@@ -8,6 +8,8 @@ import {
   TSimulationEndpointDependency,
   TSimulationResponseBody,
   TSimulationEndpoint,
+  TSimulationEndpointMetricInfo,
+  TSimulationEndpointRequestCount,
   TSimulationYAML
 } from "../../entities/TSimulationYAML";
 import DataCache from "../../services/DataCache";
@@ -16,7 +18,7 @@ import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointDependency } from "../../entities/TEndpointDependency";
 import { TRequestTypeUpper } from "../../entities/TRequestType";
 import { TEndpointDataType } from "../../entities/TEndpointDataType";
-
+import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
 import { EndpointDependencies } from "../EndpointDependencies";
 import { RealtimeDataList } from "../RealtimeDataList";
 
@@ -27,15 +29,16 @@ import { CReplicas } from "../Cacheable/CReplicas";
 
 import Logger from "../../utils/Logger";
 
-export default class StaticSimulator extends Simulator {
-  private static instance?: StaticSimulator;
+export default class TrafficSimulator extends Simulator {
+  private static instance?: TrafficSimulator;
   static getInstance = () => this.instance || (this.instance = new this());
 
-  yamlToSimulationStaticData(yamlString: string): {
+  yamlToSimulationData(yamlString: string): {
     validationErrorMessage: string; // error message when validating YAML format
     convertingErrorMessage: string; // error message when converting to realtime data
     endpointDependencies: TEndpointDependency[];
-    dataType: TEndpointDataType[]
+    dataType: TEndpointDataType[];
+    cbRealtimeDataList: TCombinedRealtimeData[];
     replicaCountList: TReplicaCount[];
   } {
     const { validationErrorMessage, parsedYAML } = this.validateAndParseYAML(yamlString);
@@ -46,26 +49,19 @@ export default class StaticSimulator extends Simulator {
         convertingErrorMessage: "",
         endpointDependencies: [],
         dataType: [],
+        cbRealtimeDataList: [],
         replicaCountList: [],
       };
     }
 
     const convertDate = Date.now();
+    const dependencySimulator = DependencyGraphSimulator.getInstance();
     const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
 
     const {
       endpointInfoSet
-    } = DependencyGraphSimulator.getInstance().extractEndpointsInfo(
-      parsedYAML.endpointsInfo, 
-      convertDate,
-      existingUniqueEndpointNameMappings
-    );
-
-    const {
-      sampleRlDataList,
-      replicaCountList
-    } = this.extractSampleDataAndReplicaCount(
-      parsedYAML.endpointsInfo, 
+    } = dependencySimulator.extractEndpointsInfo(
+      parsedYAML.endpointsInfo,
       convertDate,
       existingUniqueEndpointNameMappings
     );
@@ -73,9 +69,33 @@ export default class StaticSimulator extends Simulator {
     const {
       dependOnMap,
       dependByMap
-    } = DependencyGraphSimulator.getInstance().buildDependencyMaps(parsedYAML.endpointDependencies);
+    } = dependencySimulator.buildDependencyMaps(parsedYAML.endpointDependencies);
 
-    const endpointDependencies = DependencyGraphSimulator.getInstance().createEndpointDependencies(
+    const { requestCounts, latencyMap, errorRateMap } = this.getTrafficMap(parsedYAML.endpointMetrics);
+
+
+    const trafficPropagationResults = this.simulateTrafficPropagationFromAllEntries(
+      dependOnMap,
+      requestCounts,
+      latencyMap,
+      errorRateMap,
+    );
+
+
+
+    const {
+      realTimeDataList,
+      sampleRealTimeDataList,// to extract simulation data types even without traffic
+      replicaCountList
+    } = this.extractSampleDataAndReplicaCount(
+      parsedYAML.endpointsInfo,
+      convertDate,
+      existingUniqueEndpointNameMappings,
+      trafficPropagationResults
+    );
+
+
+    const endpointDependencies = dependencySimulator.createEndpointDependencies(
       convertDate,
       endpointInfoSet,
       dependOnMap,
@@ -86,37 +106,40 @@ export default class StaticSimulator extends Simulator {
       return {
         validationErrorMessage: "",
         convertingErrorMessage: "",
-        ...this.convertRawToStaticData(
-          sampleRlDataList,
+        ...this.convertRawToSimulationData(
+          realTimeDataList,
+          sampleRealTimeDataList,
           endpointDependencies
         ),
         replicaCountList: replicaCountList,
       };
     } catch (err) {
       const errMsg = `${err instanceof Error ? err.message : err}`;
-      Logger.error("Failed to convert simulationRawData to static data, skipping.");
+      Logger.error("Failed to convert simulationRawData to simulation data, skipping.");
       Logger.verbose("-detail: ", errMsg);
       return {
         validationErrorMessage: "",
-        convertingErrorMessage: `Failed to convert simulationRawData to static data:\n ${errMsg}`,
+        convertingErrorMessage: `Failed to convert simulationRawData to simulation data:\n ${errMsg}`,
         endpointDependencies: [],
         dataType: [],
+        cbRealtimeDataList: [],
         replicaCountList: [],
       };
     }
   }
 
-  private convertRawToStaticData(
-    sampleRlDataList: TRealtimeData[],
+  private convertRawToSimulationData(
+    realTimeDataList: TRealtimeData[],
+    sampleRealTimeDataList: TRealtimeData[],
     endpointDependencies: TEndpointDependency[],
   ) {
-    const sampleCbdata = new RealtimeDataList(sampleRlDataList).toCombinedRealtimeData();
+    const cbData = new RealtimeDataList(realTimeDataList).toCombinedRealtimeData();
+    const sampleCbdata = new RealtimeDataList(sampleRealTimeDataList).toCombinedRealtimeData();
     const dataType = sampleCbdata.extractEndpointDataType();
     const existingDep = DataCache.getInstance()
       .get<CEndpointDependencies>("EndpointDependencies")
       .getData()?.toJSON();
     const newDep = new EndpointDependencies(endpointDependencies);
-
     const dep = existingDep
       ? new EndpointDependencies(existingDep).combineWith(newDep)
       : newDep;
@@ -124,22 +147,29 @@ export default class StaticSimulator extends Simulator {
     return {
       endpointDependencies: dep.toJSON(),
       dataType: dataType.map((d) => d.toJSON()),
+      cbRealtimeDataList: cbData.toJSON(),
     }
   }
 
   private extractSampleDataAndReplicaCount(
     endpointsInfo: TSimulationNamespace[],
     convertDate: number,
-    existingUniqueEndpointNameMappings: Map<string, string>
+    existingUniqueEndpointNameMappings: Map<string, string>,
+    trafficPropagationResults: Map<string, {
+      entryEndpoint: string;
+      requestCount: number;
+      errorCount: number;
+      maxLatency: number;
+    }[]>
   ): {
-    sampleRlDataList: TRealtimeData[];
+    realTimeDataList: TRealtimeData[];
+    sampleRealTimeDataList: TRealtimeData[];
     replicaCountList: TReplicaCount[];
   } {
-    const sampleRlDataList: TRealtimeData[] = []; // to extract static data types even without traffic
+    const realTimeDataList: TRealtimeData[] = [];
+    const sampleRealTimeDataList: TRealtimeData[] = [];
     const replicaCountList: TReplicaCount[] = [];
     const processedUniqueServiceNameSet = new Set<string>();
-    
-    
 
 
     for (const ns of endpointsInfo) {
@@ -161,7 +191,6 @@ export default class StaticSimulator extends Simulator {
           });
 
           for (const ep of ver.endpoints) {
-
             const { path, method } = ep.endpointInfo;
             const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
 
@@ -175,7 +204,8 @@ export default class StaticSimulator extends Simulator {
             )
             // create a realtimeData
             this.collectEndpointRealtimeData(
-              sampleRlDataList,
+              realTimeDataList,
+              sampleRealTimeDataList,
               uniqueServiceName,
               uniqueEndpointName,
               ns.namespace,
@@ -184,17 +214,19 @@ export default class StaticSimulator extends Simulator {
               methodUpperCase,
               convertDate,
               ep.datatype,
+              trafficPropagationResults.get(ep.endpointId),
             );
           }
         }
       }
     }
 
-    return { sampleRlDataList, replicaCountList };
+    return { realTimeDataList, sampleRealTimeDataList, replicaCountList };
   }
 
   private collectEndpointRealtimeData(
-    sampleRlDataList: TRealtimeData[],
+    realTimeDataList: TRealtimeData[],
+    sampleRealTimeDataList: TRealtimeData[],
     uniqueServiceName: string,
     uniqueEndpointName: string,
     namespace: string,
@@ -203,6 +235,12 @@ export default class StaticSimulator extends Simulator {
     methodUpperCase: TRequestTypeUpper,
     convertDate: number,
     datatype?: TSimulationEndpointDatatype,
+    trafficPropagationResult?: {
+      entryEndpoint: string;
+      requestCount: number;
+      errorCount: number;
+      maxLatency: number;
+    }[],
   ) {
     // Create a response map based on datatype
     const respMap = new Map<string, { body: string; contentType: string }>();
@@ -214,7 +252,7 @@ export default class StaticSimulator extends Simulator {
     });
     const sampleStatuses = [...respMap.keys()];
 
-    sampleRlDataList.push(...sampleStatuses.map(status => ({
+    const baseData = {
       uniqueServiceName,
       uniqueEndpointName,
       timestamp: convertDate * 1000, // microseconds
@@ -222,15 +260,193 @@ export default class StaticSimulator extends Simulator {
       service,
       namespace,
       version,
-      latency: 0,
-      status,
-      responseBody: respMap.get(status)?.body,
-      responseContentType: respMap.get(status)?.contentType,
       requestBody: datatype?.requestBody,
       requestContentType: datatype?.requestContentType,
-      replica: undefined
-    })));
+      replica: undefined,
+    };
+
+
+    sampleRealTimeDataList.push(
+      ...sampleStatuses.map(status => ({
+        ...baseData,
+        latency: 0,
+        status,
+        responseBody: respMap.get(status)?.body,
+        responseContentType: respMap.get(status)?.contentType,
+      }))
+    );
+
+
+    if (trafficPropagationResult) {
+      const resp200 = respMap.get("200");
+      const resp500 = respMap.get("500");
+      for (const result of trafficPropagationResult) {
+        const { requestCount, errorCount, maxLatency } = result;
+        const successCount = requestCount - errorCount;
+
+        for (let i = 0; i < successCount; i++) {
+          realTimeDataList.push({
+            ...baseData,
+            latency: maxLatency,
+            status: "200",
+            responseBody: resp200?.body,
+            responseContentType: resp200?.contentType,
+          });
+        }
+
+        for (let i = 0; i < errorCount; i++) {
+          realTimeDataList.push({
+            ...baseData,
+            latency: maxLatency,
+            status: "500",
+            responseBody: resp500?.body,
+            responseContentType: resp500?.contentType,
+          });
+        }
+      }
+    }
   }
+  private getTrafficMap(endpointMetrics?: {
+    info: TSimulationEndpointMetricInfo[];
+    requests: TSimulationEndpointRequestCount[];
+  }): {
+    requestCounts: Map<string, number>;
+    latencyMap: Map<string, number>;   // latency >= 0
+    errorRateMap: Map<string, number>; // errorRate in [0,1]
+  } {
+    if (!endpointMetrics) {
+      return {
+        requestCounts: new Map(),
+        latencyMap: new Map(),
+        errorRateMap: new Map(),
+      };
+    }
+
+    const requestCounts = new Map<string, number>();
+    for (const { endpointId, requestCount } of endpointMetrics.requests) {
+      requestCounts.set(endpointId, (requestCounts.get(endpointId) ?? 0) + requestCount);
+    }
+
+    const latencyMap = new Map<string, number>();
+    const errorRateMap = new Map<string, number>();
+    for (const { endpointId, latencyMs, errorRate } of endpointMetrics.info) {
+      latencyMap.set(endpointId, latencyMs < 0 ? 0 : latencyMs);
+      errorRateMap.set(endpointId, Math.min(Math.max(errorRate ?? 0, 0), 100) / 100);
+    }
+
+    return { requestCounts, latencyMap, errorRateMap };
+  }
+  // Simulates traffic propagation starting from multiple entry endpoint and aggregates results
+  private simulateTrafficPropagationFromAllEntries(
+    dependOnMap: Map<string, Set<string>>,
+    requestCounts: Map<string, number>,
+    latencyMap: Map<string, number>,
+    errorRateMap: Map<string, number>
+  ): Map<string, { entryEndpoint: string; requestCount: number; errorCount: number; maxLatency: number }[]> {
+    // Map to aggregate stats per endpoint, with an array of stats from different entry endpoint
+    const aggregatedResults = new Map<string, { entryEndpoint: string; requestCount: number; errorCount: number; maxLatency: number }[]>();
+
+    // For each starting entry point and its initial request count
+    for (const [entryPointId, count] of requestCounts.entries()) {
+      // Run single entry propagation
+      const { stats } = this.simulateTrafficPropagationFromSingleEntry(
+        entryPointId,
+        count,
+        dependOnMap,
+        latencyMap,
+        errorRateMap
+      );
+
+      // Aggregate results: for each endpoint reached, add the stats with origin info
+      for (const [targetEndpointId, stat] of stats.entries()) {
+        if (!aggregatedResults.has(targetEndpointId)) {
+          aggregatedResults.set(targetEndpointId, []);
+        }
+        aggregatedResults.get(targetEndpointId)!.push({
+          entryEndpoint: entryPointId,
+          requestCount: stat.requestCount,
+          errorCount: stat.errorCount,
+          maxLatency: stat.maxLatency,
+        });
+      }
+    }
+
+    return aggregatedResults;
+  }
+  private simulateTrafficPropagationFromSingleEntry(
+    entryPointId: string,
+    initialRequestCount: number,
+    dependencyGraph: Map<string, Set<string>>,
+    latencyMap: Map<string, number>,
+    errorRateMap: Map<string, number>,
+  ): {
+    entryPointId: string;
+    stats: Map<string, { requestCount: number; errorCount: number; maxLatency: number }>;
+  } {
+    // If there are no initial requests, return empty stats
+    if (initialRequestCount <= 0) {
+      return { entryPointId, stats: new Map() };
+    }
+
+    // Store aggregated statistics per endpoint
+    const stats = new Map<string, { requestCount: number; errorCount: number; maxLatency: number }>();
+    // Track visited endpoints to avoid cycles
+    const visited = new Set<string>();
+
+    // Depth-first search to propagate traffic and compute metrics
+    function dfs(endpointId: string, propagatedRequests: number): number {
+      // If already visited or no requests to propagate, return zero latency
+      if (visited.has(endpointId) || propagatedRequests <= 0) return 0;
+      visited.add(endpointId);
+
+      const errorRate = errorRateMap.get(endpointId) ?? 0;
+      const latency = latencyMap.get(endpointId) ?? 0;
+
+      // Simulate error count based on error rate
+      let errorCount = 0;
+      if (errorRate === 1) errorCount = propagatedRequests;
+      else if (errorRate > 0) {
+        for (let i = 0; i < propagatedRequests; i++) {
+          if (Math.random() < errorRate) errorCount++;
+        }
+      }
+
+      // Calculate successful requests after errors
+      const successfulRequests = propagatedRequests - errorCount;
+
+      // Recursively propagate to dependent child endpoints
+      const children = dependencyGraph.get(endpointId);
+      let maxChildLatency = 0;
+      if (children) {
+        for (const childId of children) {
+          const childLatency = dfs(childId, successfulRequests);
+          if (childLatency > maxChildLatency) maxChildLatency = childLatency;
+        }
+      }
+
+      // Total latency includes current endpoint's latency and max downstream latency
+      const totalLatency = latency + maxChildLatency;
+
+      // Update stats for this endpoint with accumulated values
+      const existing = stats.get(endpointId) ?? { requestCount: 0, errorCount: 0, maxLatency: 0 };
+      stats.set(endpointId, {
+        requestCount: existing.requestCount + propagatedRequests,
+        errorCount: existing.errorCount + errorCount,
+        maxLatency: Math.max(existing.maxLatency, totalLatency),
+      });
+
+      // Remove endpoint from visited set before backtracking
+      visited.delete(endpointId);
+      return totalLatency;
+    }
+
+    // Start DFS traversal from the entry point
+    dfs(entryPointId, initialRequestCount);
+
+    return { entryPointId, stats };
+  }
+
+
 
 
   // Retrieve necessary data from kmamiz and convert it into a YAML file that can be used to generate static simulation data
@@ -239,21 +455,19 @@ export default class StaticSimulator extends Simulator {
     const existingEndpointDependencies = DataCache.getInstance()
       .get<CEndpointDependencies>("EndpointDependencies")
       .getData()?.toJSON() || [];
-
     const existingReplicaCountList = DataCache.getInstance()
       .get<CReplicas>("ReplicaCounts")
       .getData() || [];
-
     const existingDataTypes = DataCache.getInstance()
       .get<CEndpointDataType>("EndpointDataType")
       .getData();
 
 
-    const { endpointsInfoYaml, endpointUniqueIdMap } = this.buildEndpointsInfoYaml(
+    const { endpointsInfoYaml, endpointIdMap } = this.buildEndpointsInfoYaml(
       existingDataTypes.map((d) => d.toJSON()),
       existingReplicaCountList
     );
-    const endpointDependenciesYaml = this.buildEndpointDependenciesYaml(existingEndpointDependencies, endpointUniqueIdMap);
+    const endpointDependenciesYaml = this.buildEndpointDependenciesYaml(existingEndpointDependencies, endpointIdMap);
     const StaticSimulationYaml: TSimulationYAML = {
       endpointsInfo: endpointsInfoYaml,
       endpointDependencies: endpointDependenciesYaml
@@ -277,11 +491,11 @@ export default class StaticSimulator extends Simulator {
     replicaCountList: TReplicaCount[],
   ): {
     endpointsInfoYaml: TSimulationNamespace[],
-    endpointUniqueIdMap: Map<string, string>,
+    endpointIdMap: Map<string, string>,
   } {
     const namespacesMap: Record<string, TSimulationNamespace> = {};
-    const endpointUniqueIdCounterMap = new Map<string, number>();
-    const endpointUniqueIdMap = new Map<string, string>(); // key: uniqueEndpointName, value: endpointUniqueId
+    const endpointIdCounterMap = new Map<string, number>();
+    const endpointIdMap = new Map<string, string>(); // key: uniqueEndpointName, value: endpointId
 
     // merge schemas by uniqueEndpointName
     const endpointMap = new Map<string, TEndpointDataType>();
@@ -355,13 +569,13 @@ export default class StaticSimulator extends Simulator {
       }));
 
       const endpointIdPrefix = `${namespace}-${service}-${version}-${method.toLowerCase()}-ep`;
-      const serialNumber = (endpointUniqueIdCounterMap.get(endpointIdPrefix) || 1);
-      const endpointUniqueId = `${endpointIdPrefix}-${serialNumber}`;
-      endpointUniqueIdMap.set(uniqueEndpointName, endpointUniqueId);
-      endpointUniqueIdCounterMap.set(endpointIdPrefix, serialNumber + 1);
+      const serialNumber = (endpointIdCounterMap.get(endpointIdPrefix) || 1);
+      const endpointId = `${endpointIdPrefix}-${serialNumber}`;
+      endpointIdMap.set(uniqueEndpointName, endpointId);
+      endpointIdCounterMap.set(endpointIdPrefix, serialNumber + 1);
 
       const endpoint: TSimulationEndpoint = {
-        endpointUniqueId: endpointUniqueId,
+        endpointId: endpointId,
         endpointInfo: {
           path,
           method
@@ -401,7 +615,7 @@ export default class StaticSimulator extends Simulator {
 
     return {
       endpointsInfoYaml: Object.values(namespacesMap),
-      endpointUniqueIdMap: endpointUniqueIdMap
+      endpointIdMap: endpointIdMap
     };
   }
 
@@ -419,14 +633,14 @@ export default class StaticSimulator extends Simulator {
         .map(d => {
           const toKey = d.endpoint.uniqueEndpointName;
           const toId = endpointIdMap.get(toKey);
-          return toId ? { endpointUniqueId: toId } : null;
+          return toId ? { endpointId: toId } : null;
         })
-        .filter((d): d is { endpointUniqueId: string } => d !== null);
+        .filter((d): d is { endpointId: string } => d !== null);
 
       if (dependOn.length === 0) return null;
 
       return {
-        endpointUniqueId: fromId,
+        endpointId: fromId,
         dependOn
       };
     }).filter((d): d is TSimulationEndpointDependency => d !== null);
@@ -471,6 +685,4 @@ export default class StaticSimulator extends Simulator {
       return 'null';
     }
   }
-
-
 }

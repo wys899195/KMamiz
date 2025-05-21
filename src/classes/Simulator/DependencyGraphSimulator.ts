@@ -40,8 +40,8 @@ export default class DependencyGraphSimulator extends Simulator {
   graphDataToYAML(graph: TGraphData): string {
     const yamlObj: TSimulationYAML = { endpointsInfo: [], endpointDependencies: [] };
 
-    const endpointUniqueIdMap = new Map<string, string>();
-    const endpointUniqueIdCounterMap: Map<string, number> = new Map();
+    const endpointIdMap = new Map<string, string>();
+    const endpointIdCounterMap: Map<string, number> = new Map();
 
     const endpointNodes = graph.nodes.filter(
       (node) => node.id !== "null" && node.id.split("\t").length === 5
@@ -50,14 +50,14 @@ export default class DependencyGraphSimulator extends Simulator {
       (node) => node.id !== "null" && node.id.split("\t").length === 2
     );// service node has exactly 2 parts when split by "\t": service, namespace).
 
-    // auto create endpointUniqueId to each endpoint
+    // auto create endpointId to each endpoint
     endpointNodes.forEach((node) => {
       const [service, namespace, version, method] = node.id.split("\t");
       const newEndpointIdPrefix = `${namespace}-${service}-${version}-${method.toLowerCase()}-ep`;
-      const serialNumber = (endpointUniqueIdCounterMap.get(newEndpointIdPrefix) || 1);
+      const serialNumber = (endpointIdCounterMap.get(newEndpointIdPrefix) || 1);
       const newEndpointId = `${newEndpointIdPrefix}-${serialNumber}`;
-      endpointUniqueIdCounterMap.set(newEndpointIdPrefix, serialNumber + 1);
-      endpointUniqueIdMap.set(node.id, newEndpointId);
+      endpointIdCounterMap.set(newEndpointIdPrefix, serialNumber + 1);
+      endpointIdMap.set(node.id, newEndpointId);
     });
 
     // build endpointsInfo
@@ -83,9 +83,9 @@ export default class DependencyGraphSimulator extends Simulator {
       const versionMap = new Map<string, { version: string; endpoints: TSimulationEndpoint[] }>();
       endpointsForService.forEach((epNode) => {
         const [, , version, method, path] = epNode.id.split("\t");
-        const newEndpointId = endpointUniqueIdMap.get(epNode.id)!;
+        const newEndpointId = endpointIdMap.get(epNode.id)!;
         const endpointObj: TSimulationEndpoint = {
-          endpointUniqueId: newEndpointId,
+          endpointId: newEndpointId,
           endpointInfo: {
             path: decodeURIComponent(path),
             method: method as TRequestType,
@@ -106,8 +106,8 @@ export default class DependencyGraphSimulator extends Simulator {
     // build endpointDependencies
     const dependencyMap = new Map<string, TSimulationDependOn[]>();
     graph.links.forEach((link) => {
-      const sourceId = endpointUniqueIdMap.get(link.source);
-      const targetId = endpointUniqueIdMap.get(link.target);
+      const sourceId = endpointIdMap.get(link.source);
+      const targetId = endpointIdMap.get(link.target);
 
       if (!sourceId || !targetId) return; // skip non-endpoint-to-endpoint links.
       if (!dependencyMap.has(sourceId)) {
@@ -115,12 +115,12 @@ export default class DependencyGraphSimulator extends Simulator {
       }
 
       dependencyMap.get(sourceId)!.push({
-        endpointUniqueId: targetId
+        endpointId: targetId
       });
     });
 
-    dependencyMap.forEach((dependOn, endpointUniqueId) => {
-      yamlObj.endpointDependencies.push({ endpointUniqueId, dependOn });
+    dependencyMap.forEach((dependOn, endpointId) => {
+      yamlObj.endpointDependencies.push({ endpointId, dependOn });
     });
 
     return yaml.dump(yamlObj, { lineWidth: -1 });
@@ -135,7 +135,7 @@ export default class DependencyGraphSimulator extends Simulator {
     const dependByMap = new Map<string, Set<string>>();
 
     dependencies?.forEach(dep => {
-      const from = dep.endpointUniqueId;
+      const from = dep.endpointId;
       const toList = dep.dependOn || [];
 
       let fromSet = dependOnMap.get(from);
@@ -146,13 +146,13 @@ export default class DependencyGraphSimulator extends Simulator {
 
       toList.forEach(to => {
         // Establish dependency A -> B
-        fromSet!.add(to.endpointUniqueId);
+        fromSet!.add(to.endpointId);
 
         // Establish reverse dependency B <- A
-        let toSet = dependByMap.get(to.endpointUniqueId);
+        let toSet = dependByMap.get(to.endpointId);
         if (!toSet) {
           toSet = new Set();
-          dependByMap.set(to.endpointUniqueId, toSet);
+          dependByMap.set(to.endpointId, toSet);
         }
         toSet!.add(from);
       });
@@ -195,7 +195,7 @@ export default class DependencyGraphSimulator extends Simulator {
             )
 
             // create TEndpointInfo and insert into endpointInfoSet(used to create endpointDependencies)
-            endpointInfoSet.set(ep.endpointUniqueId, {
+            endpointInfoSet.set(ep.endpointId, {
               uniqueServiceName,
               uniqueEndpointName,
               service: svc.serviceName,
