@@ -88,8 +88,8 @@ export default class CombinedRealtimeDataList {
           },
           { requests: 0, requestErrors: 0, serverErrors: 0 }
         );
-        const validLatencies = r.filter(rl => rl.latency.mean !== undefined && rl.latency.mean !== null);
-        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
+        const validLatencies = r.filter(rl => rl.latency.scaledMean !== undefined && rl.latency.scaledMean !== null);
+        const meanLatency = validLatencies.reduce((sum, rl) => sum + (Utils.ToPrecise(rl.latency.scaledMean * Math.pow(10,rl.latency.scaleLevel))), 0) / validLatencies.length;
 
         return {
           latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency: 0,
@@ -126,8 +126,8 @@ export default class CombinedRealtimeDataList {
           },
           { requests: 0, requestErrors: 0, serverErrors: 0 }
         );
-        const validLatencies = r.filter(rl => typeof(rl.latency.mean) ==="number" && isFinite(rl.latency.mean));
-        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
+        const validLatencies = r.filter(rl => typeof(rl.latency.scaledMean) ==="number" && isFinite(rl.latency.scaledMean));
+        const meanLatency = validLatencies.reduce((sum, rl) => sum + (Utils.ToPrecise(rl.latency.scaledMean * Math.pow(10,rl.latency.scaleLevel))), 0) / validLatencies.length;
         
         return {
           date: new Date(time),
@@ -229,23 +229,38 @@ export default class CombinedRealtimeDataList {
           return prev;
         });
 
-        let { latencyMean, latencyDivBase } = group.reduce(
-          (prev, curr) => {
-            prev.latencyMean += curr.latency.mean * curr.combined;
-            prev.latencyDivBase += curr.latency.divBase;
-            return prev;
-          },
-          { latencyMean: 0, latencyDivBase: 0 }
-        );
-        latencyMean /= baseSample.combined;
 
-        latencyMean = Utils.ToPrecise(latencyMean);
-        latencyDivBase = Utils.ToPrecise(latencyDivBase);
+        const shiftScaleLevel = Math.min(...group.map(g => g.latency.scaleLevel));
+        let totalCount = 0;
+        let totalMean = 0;
+        let totalDivBase = 0;
+
+        group.forEach(curr => {
+          const count = curr.combined;
+          totalCount += count;
+    
+          const adjustedScaleLevel = curr.latency.scaleLevel - shiftScaleLevel;
+          const scaleFactor = Math.pow(10, adjustedScaleLevel);
+    
+          const mean = curr.latency.scaledMean * scaleFactor;
+          const divBase = curr.latency.scaledDivBase * Math.pow(scaleFactor, 2);
+    
+          totalMean += mean * count;
+          totalDivBase += divBase;
+        });
+
+        totalMean = totalMean / totalCount;
+        const { scaleFactor, scaleLevel } = this.calculateScaleFactor(totalMean);
+        const finalScaleLevel = shiftScaleLevel + scaleLevel;
+
+
+        const finalMean = Utils.ToPrecise(totalMean / scaleFactor);
+        const finalDivBase = Utils.ToPrecise(totalDivBase / Math.pow(scaleFactor, 2));
         const cv =
           Utils.ToPrecise(
             Math.sqrt(
-              latencyDivBase / baseSample.combined - Math.pow(latencyMean, 2)
-            ) / latencyMean
+              finalDivBase / totalCount - Math.pow(finalMean, 2)
+            ) / finalMean
           ) || 0;
 
         return {
@@ -256,15 +271,22 @@ export default class CombinedRealtimeDataList {
           responseBody: combined.responseBody,
           responseSchema: combined.responseSchema,
           latency: {
-            mean: latencyMean,
-            divBase: latencyDivBase,
+            scaledMean: finalMean,
+            scaledDivBase: finalDivBase,
             cv,
+            scaleLevel: finalScaleLevel
           },
         };
       }
     );
 
     return new CombinedRealtimeDataList(combined);
+  }
+
+  calculateScaleFactor(value: number): { scaleFactor: number; scaleLevel: number } {
+    if (value <= 0) return { scaleFactor: 1, scaleLevel: 0 };
+    const exp = Math.floor(Math.log10(value));
+    return { scaleFactor: Math.pow(10, exp), scaleLevel: exp };
   }
 
   getContainingNamespaces() {

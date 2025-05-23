@@ -18,6 +18,22 @@ export class RealtimeDataList {
     return new Set(this._realtimeData.map((r) => r.namespace));
   }
 
+  //to avoid standard deviation growing too fast causing overflow
+  calculateScaleFactor(latencies: number[]): { scaleFactor: number; scaleLevel: number } {
+    if (latencies.length === 0) return { scaleFactor: 1, scaleLevel: 0 };
+    const minLatency = Math.min(...latencies);
+    const maxLatency = Math.max(...latencies);
+    if (minLatency <= 0 || maxLatency <= 0) return { scaleFactor: 1, scaleLevel: 0 };
+    const minExp = Math.floor(Math.log10(minLatency));
+    const maxExp = Math.floor(Math.log10(maxLatency));
+    if (maxExp > 0) {
+      return { scaleFactor: Math.pow(10, maxExp), scaleLevel: maxExp };
+    } else if (minExp < 0) {
+      return { scaleFactor: Math.pow(10, minExp), scaleLevel: minExp };
+    }
+    return { scaleFactor: 1, scaleLevel: 0 };
+  }
+
   toCombinedRealtimeData() {
     const uniqueNameMapping = new Map<string, TRealtimeData[]>();
     this._realtimeData.forEach((r) => {
@@ -43,9 +59,25 @@ export class RealtimeDataList {
 
         const combinedSubGroup = [...statusMap.entries()].map(
           ([status, subGroup]): TCombinedRealtimeData => {
+
+            const latencies = subGroup.map((r) => r.latency);
+
+            // Scale latency values to avoid overflow in variance calculation when latencies are large
+            const { scaleFactor, scaleLevel } = this.calculateScaleFactor(latencies);
+            const scaledLatencies = scaleFactor === 1 ? latencies : latencies.map(l => l / scaleFactor);
+            const latencyDivBaseScaled = Utils.ToPrecise(
+              scaledLatencies.reduce((prev, curr) => prev + curr * curr, 0)
+            );
+            const latencyMeanScaled = Utils.ToPrecise(
+              scaledLatencies.reduce((prev, curr) => prev + curr, 0) / scaledLatencies.length
+            );
+            const cv = Utils.ToPrecise(
+              Math.sqrt(latencyDivBaseScaled / scaledLatencies.length - Math.pow(latencyMeanScaled, 2))
+              / latencyMeanScaled
+            ) || 0;
+
             const combined = subGroup.reduce((prev, curr) => {
               const acc = { ...prev };
-              acc.latency += curr.latency;
               acc.requestBody = Utils.MergeStringBody(
                 acc.requestBody,
                 curr.requestBody
@@ -62,22 +94,6 @@ export class RealtimeDataList {
             const { requestBody, requestSchema, responseBody, responseSchema } =
               RealtimeDataList.parseRequestResponseBody(combined);
 
-            const latencyDivBase = Utils.ToPrecise(
-              subGroup.reduce(
-                (prev, curr) => prev + Math.pow(curr.latency, 2),
-                0
-              )
-            );
-            const latencyMean = Utils.ToPrecise(
-              combined.latency / subGroup.length
-            );
-            const cv =
-              Utils.ToPrecise(
-                Math.sqrt(
-                  latencyDivBase / subGroup.length - Math.pow(latencyMean, 2)
-                ) / latencyMean
-              ) || 0;
-
             return {
               ...baseSample,
               status,
@@ -91,9 +107,10 @@ export class RealtimeDataList {
                 : undefined,
               latestTimestamp: combined.timestamp,
               latency: {
-                mean: latencyMean,
-                divBase: latencyDivBase,
+                scaledMean: latencyMeanScaled,
+                scaledDivBase: latencyDivBaseScaled,
                 cv,
+                scaleLevel: scaleLevel,
               },
               requestContentType: combined.requestContentType,
               responseContentType: combined.responseContentType,

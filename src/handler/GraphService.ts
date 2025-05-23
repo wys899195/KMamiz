@@ -252,7 +252,7 @@ export default class GraphService extends IRequestHandler {
       totalRequests:number,
       totalServerError:number,
       totalRequestError:number,
-      divBase:number,
+      validConut:number,
     }> = {}
     historicalData.forEach((h) => {
       h.services.forEach((si) => {
@@ -264,12 +264,12 @@ export default class GraphService extends IRequestHandler {
             totalRequests:0,
             totalServerError:0,
             totalRequestError:0,
-            divBase:0
+            validConut:0
           }
         }
         if(typeof(si.latencyMean) === "number" && isFinite(si.latencyMean)){
           servicesStatisticsDict[si.uniqueServiceName].totalLatencyMean += si.latencyMean;
-          servicesStatisticsDict[si.uniqueServiceName].divBase += 1;
+          servicesStatisticsDict[si.uniqueServiceName].validConut += 1;
         }
         servicesStatisticsDict[si.uniqueServiceName].totalRequests += si.requests;
         servicesStatisticsDict[si.uniqueServiceName].totalRequestError += si.requestErrors;
@@ -277,11 +277,11 @@ export default class GraphService extends IRequestHandler {
       });
     });
     const servicesStatistics = Object.entries(servicesStatisticsDict)
-    .filter(([_, vals]) => vals.divBase !== 0)
+    .filter(([_, vals]) => vals.validConut !== 0)
     .map(([key, vals]) => ({
         uniqueServiceName:key,
         name:vals.name,
-        latencyMean: vals.totalLatencyMean / vals.divBase || 0,
+        latencyMean: vals.totalLatencyMean / vals.validConut || 0,
         serverErrorRate: vals.totalServerError / vals.totalRequests || 0,
         requestErrorsRate: vals.totalRequestError / vals.totalRequests || 0,
       })
