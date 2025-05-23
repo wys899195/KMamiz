@@ -9,7 +9,7 @@ import { CTaggedInterfaces } from "../classes/Cacheable/CTaggedInterfaces";
 import { CTaggedSwaggers } from "../classes/Cacheable/CTaggedSwaggers";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CUserDefinedLabel } from "../classes/Cacheable/CUserDefinedLabel";
-import { CSimulationYAML } from "../classes/Cacheable/CSimulationYAML";
+import { CTaggedSimulationYAML } from "../classes/Cacheable/CTaggedSimulationYAML";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
 import { HistoricalDataModel } from "../entities/schema/HistoricalDataSchema";
 import { TAggregatedData } from "../entities/TAggregatedData";
@@ -44,6 +44,7 @@ export default class ImportExportHandler {
   }
 
   async clearData() {
+    console.log("clearData!!")
     DataCache.getInstance().clear();
     DataCache.getInstance().register([
       new CLabelMapping(),
@@ -57,7 +58,7 @@ export default class ImportExportHandler {
       new CLabeledEndpointDependencies(),
       new CUserDefinedLabel(),
       new CLookBackRealtimeData(),
-      new CSimulationYAML(),
+      new CTaggedSimulationYAML(),
     ]);
     await MongoOperator.getInstance().clearDatabase();
   }

@@ -428,11 +428,11 @@ export default class TrafficSimulator extends Simulator {
       const totalLatency = latency + maxChildLatency;
 
       // Update stats for this endpoint with accumulated values
-      const existing = stats.get(endpointId) ?? { requestCount: 0, errorCount: 0, maxLatency: 0 };
+      const currentStats = stats.get(endpointId) ?? { requestCount: 0, errorCount: 0, maxLatency: 0 };
       stats.set(endpointId, {
-        requestCount: existing.requestCount + propagatedRequests,
-        errorCount: existing.errorCount + errorCount,
-        maxLatency: Math.max(existing.maxLatency, totalLatency),
+        requestCount: currentStats.requestCount + propagatedRequests,
+        errorCount: currentStats.errorCount + errorCount,
+        maxLatency: Math.max(currentStats.maxLatency, totalLatency),
       });
 
       // Remove endpoint from visited set before backtracking

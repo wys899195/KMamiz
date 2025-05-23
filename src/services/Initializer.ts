@@ -10,7 +10,7 @@ import { CTaggedInterfaces } from "../classes/Cacheable/CTaggedInterfaces";
 import { CTaggedSwaggers } from "../classes/Cacheable/CTaggedSwaggers";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CUserDefinedLabel } from "../classes/Cacheable/CUserDefinedLabel";
-import { CSimulationYAML } from "../classes/Cacheable/CSimulationYAML";
+import { CTaggedSimulationYAML } from "../classes/Cacheable/CTaggedSimulationYAML";
 import { HistoricalData } from "../classes/HistoricalData";
 import { Traces } from "../classes/Traces";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
@@ -27,7 +27,7 @@ import Scheduler from "./Scheduler";
 import ServiceOperator from "./ServiceOperator";
 import ServiceUtils from "./ServiceUtils";
 import ZipkinService from "./ZipkinService";
-import ImportExportHandler from "./ImportExportHandler";
+// import ImportExportHandler from "./ImportExportHandler";
 
 export default class Initializer {
   private static instance?: Initializer;
@@ -134,7 +134,7 @@ export default class Initializer {
       new CLabeledEndpointDependencies(),
       new CUserDefinedLabel(),
       new CLookBackRealtimeData(),
-      new CSimulationYAML(),
+      new CTaggedSimulationYAML(),
     ]);
   } 
 
@@ -172,7 +172,7 @@ export default class Initializer {
   async simulationServerStartUp() {
     await this.registerDataCaches();
 
-    Logger.info("Try to loading initial data from kmamiz production service.");
-    await ImportExportHandler.getInstance().cloneDataFromProductionService();
+    // Logger.info("Try to loading initial data from kmamiz production service.");
+    // await ImportExportHandler.getInstance().cloneDataFromProductionService();
   }
 }

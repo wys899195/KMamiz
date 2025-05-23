@@ -3,6 +3,9 @@ import DependencyGraphSimulator from "../classes/Simulator/DependencyGraphSimula
 import TrafficSimulator from "../classes/Simulator/TrafficSimulator";
 import { TGraphData } from "../entities/TGraphData";
 import ServiceOperator from "../services/ServiceOperator";
+import ImportExportHandler from "../services/ImportExportHandler";
+// import { CTaggedSimulationYAML } from "../classes/Cacheable/CTaggedSimulationYAML";
+// import DataCache from "../services/DataCache";
 
 export default class SimulationService extends IRequestHandler {
   constructor() {
@@ -63,6 +66,9 @@ export default class SimulationService extends IRequestHandler {
           return res.status(201).json({ message: "Received an empty YAML. Skipping data retrieval." });
         } else {
           try {
+            //clear simulator data first
+            await ImportExportHandler.getInstance().clearData();
+            
             //retrieve data from yaml
             const result = simulator.yamlToSimulationData(decodedYAMLData);
 
@@ -111,7 +117,27 @@ export default class SimulationService extends IRequestHandler {
         }
       }
     );
+
+
   }
+
+  // getTagsOfDiffData(): { tag: string; time: number }[] {
+  //   return DataCache.getInstance()
+  //     .get<CTaggedSimulationYAML>("TaggedDiffDatas")
+  //     .getTagsWithTime();
+  // }
+
+  // addTaggedDiffData(tagged: TTaggedDiffData) {
+  //   DataCache.getInstance()
+  //     .get<CTaggedSimulationYAML>("TaggedDiffDatas")
+  //     .add(tagged);
+  // }
+
+  // deleteTaggedDiffData(tag: string) {
+  //   DataCache.getInstance()
+  //     .get<CTaggedSimulationYAML>("TaggedDiffDatas")
+  //     .delete(tag);
+  // }
 
   private toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
     const linkSet = new Set<string>();
