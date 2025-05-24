@@ -3,14 +3,13 @@ import yaml from "js-yaml";
 import Simulator from './Simulator';
 import DependencyGraphSimulator from './DependencyGraphSimulator';
 import {
+  TSimulationEndpointMetric,
+  TSimulationEndpointDependency,
   TSimulationEndpointDatatype,
   TSimulationNamespace,
-  TSimulationEndpointDependency,
-  TSimulationResponseBody,
+  TSimulationYAML,
   TSimulationEndpoint,
-  TSimulationEndpointMetricInfo,
-  TSimulationEndpointRequestCount,
-  TSimulationYAML
+  TSimulationResponseBody,
 } from "../../entities/TSimulationYAML";
 import DataCache from "../../services/DataCache";
 import { TRealtimeData } from "../../entities/TRealtimeData";
@@ -25,9 +24,39 @@ import { RealtimeDataList } from "../RealtimeDataList";
 import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
 import { CEndpointDataType } from "../Cacheable/CEndpointDataType";
 import { CReplicas } from "../Cacheable/CReplicas";
-
-
 import Logger from "../../utils/Logger";
+
+
+
+type TBaseRealtimeData = Omit<
+  TRealtimeData,
+  'latency' | 'status' | 'responseBody' | 'responseContentType' | 'timestamp'
+>;
+
+type BaseDataWithResponses = {
+  baseData: TBaseRealtimeData,
+  responses?: TSimulationEndpointDatatype['responses'],
+}
+
+// Represents request statistics for a specific endpoint during a particular hour
+type EndpointStats = {
+  requestCount: number;
+  errorCount: number;
+  maxLatency: number;
+};
+
+// Request statistics for all endpoints in a specific hour 
+// (key: endpoint ID, value: statistics for that endpoint)
+type HourlyStatsMap = Map<string, EndpointStats>;
+
+// Request statistics for 24 hours in a specific day 
+// (key: hour of the day (0–23), value: HourlyStatsMap for that hour)
+type DailyStatsMap = Map<number, HourlyStatsMap>;
+
+// Simulation results for all dates in the simulation period of a single run 
+// (key: day index (0 ~ simulationDurationInDays -1), value: DailyStatsMap for that day)
+type TrafficSimulationResult = Map<number, DailyStatsMap>;
+
 
 export default class TrafficSimulator extends Simulator {
   private static instance?: TrafficSimulator;
@@ -38,8 +67,8 @@ export default class TrafficSimulator extends Simulator {
     convertingErrorMessage: string; // error message when converting to realtime data
     endpointDependencies: TEndpointDependency[];
     dataType: TEndpointDataType[];
-    cbRealtimeDataList: TCombinedRealtimeData[];
     replicaCountList: TReplicaCount[];
+    realtimeDataPerHourMap:Map<string, TCombinedRealtimeData[]>
   } {
     const { validationErrorMessage, parsedYAML } = this.validateAndParseYAML(yamlString);
 
@@ -49,8 +78,8 @@ export default class TrafficSimulator extends Simulator {
         convertingErrorMessage: "",
         endpointDependencies: [],
         dataType: [],
-        cbRealtimeDataList: [],
         replicaCountList: [],
+        realtimeDataPerHourMap: new Map(),
       };
     }
 
@@ -71,29 +100,15 @@ export default class TrafficSimulator extends Simulator {
       dependByMap
     } = dependencySimulator.buildDependencyMaps(parsedYAML.endpointDependencies);
 
-    const { requestCounts, latencyMap, errorRateMap } = this.getTrafficMap(parsedYAML.endpointMetrics);
-
-
-    const trafficPropagationResults = this.simulateTrafficPropagationFromAllEntries(
-      dependOnMap,
-      requestCounts,
-      latencyMap,
-      errorRateMap,
-    );
-
-
-
     const {
-      realTimeDataList,
       sampleRealTimeDataList,// to extract simulation data types even without traffic
-      replicaCountList
+      replicaCountList,
+      baseDataMap
     } = this.extractSampleDataAndReplicaCount(
       parsedYAML.endpointsInfo,
       convertDate,
-      existingUniqueEndpointNameMappings,
-      trafficPropagationResults
+      existingUniqueEndpointNameMappings
     );
-
 
     const endpointDependencies = dependencySimulator.createEndpointDependencies(
       convertDate,
@@ -102,16 +117,36 @@ export default class TrafficSimulator extends Simulator {
       dependByMap,
     );
 
+    let realtimeDataPerHourMap:Map<string, TCombinedRealtimeData[]> = new Map();
+    if (parsedYAML.trafficSimulation && parsedYAML.trafficSimulation.endpointMetrics.length > 0) {
+      const endpointMetrics = parsedYAML.trafficSimulation.endpointMetrics;
+      const simulationDurationInDays = parsedYAML.trafficSimulation.config.simulationDurationInDays;
+      const {
+        hourlyRequestCountsForEachDayMap,
+        latencyMap,
+        errorRateMap
+      } = this.getTrafficMap(endpointMetrics, simulationDurationInDays);
+
+      const trafficPropagationResults = this.aggregateSimulateTrafficStats(
+        dependOnMap,
+        hourlyRequestCountsForEachDayMap,
+        latencyMap,
+        errorRateMap,
+      );
+      realtimeDataPerHourMap = this.generateRealtimeDataFromSimulationResults(baseDataMap, trafficPropagationResults, convertDate);
+    }
+
+
     try {
       return {
         validationErrorMessage: "",
         convertingErrorMessage: "",
         ...this.convertRawToSimulationData(
-          realTimeDataList,
           sampleRealTimeDataList,
-          endpointDependencies
+          endpointDependencies,
         ),
         replicaCountList: replicaCountList,
+        realtimeDataPerHourMap:realtimeDataPerHourMap
       };
     } catch (err) {
       const errMsg = `${err instanceof Error ? err.message : err}`;
@@ -122,18 +157,16 @@ export default class TrafficSimulator extends Simulator {
         convertingErrorMessage: `Failed to convert simulationRawData to simulation data:\n ${errMsg}`,
         endpointDependencies: [],
         dataType: [],
-        cbRealtimeDataList: [],
         replicaCountList: [],
+        realtimeDataPerHourMap: new Map(),
       };
     }
   }
 
   private convertRawToSimulationData(
-    realTimeDataList: TRealtimeData[],
     sampleRealTimeDataList: TRealtimeData[],
     endpointDependencies: TEndpointDependency[],
   ) {
-    const cbData = new RealtimeDataList(realTimeDataList).toCombinedRealtimeData();
     const sampleCbdata = new RealtimeDataList(sampleRealTimeDataList).toCombinedRealtimeData();
     const dataType = sampleCbdata.extractEndpointDataType();
     const existingDep = DataCache.getInstance()
@@ -147,28 +180,21 @@ export default class TrafficSimulator extends Simulator {
     return {
       endpointDependencies: dep.toJSON(),
       dataType: dataType.map((d) => d.toJSON()),
-      cbRealtimeDataList: cbData.toJSON(),
     }
   }
 
   private extractSampleDataAndReplicaCount(
     endpointsInfo: TSimulationNamespace[],
     convertDate: number,
-    existingUniqueEndpointNameMappings: Map<string, string>,
-    trafficPropagationResults: Map<string, {
-      entryEndpoint: string;
-      requestCount: number;
-      errorCount: number;
-      maxLatency: number;
-    }[]>
+    existingUniqueEndpointNameMappings: Map<string, string>
   ): {
-    realTimeDataList: TRealtimeData[];
     sampleRealTimeDataList: TRealtimeData[];
     replicaCountList: TReplicaCount[];
+    baseDataMap: Map<string, BaseDataWithResponses>;
   } {
-    const realTimeDataList: TRealtimeData[] = [];
     const sampleRealTimeDataList: TRealtimeData[] = [];
     const replicaCountList: TReplicaCount[] = [];
+    const baseDataMap = new Map<string, BaseDataWithResponses>();
     const processedUniqueServiceNameSet = new Set<string>();
 
 
@@ -202,49 +228,44 @@ export default class TrafficSimulator extends Simulator {
               path,
               existingUniqueEndpointNameMappings
             )
-            // create a realtimeData
-            this.collectEndpointRealtimeData(
-              realTimeDataList,
-              sampleRealTimeDataList,
+
+            const baseData: TBaseRealtimeData = {
               uniqueServiceName,
               uniqueEndpointName,
-              ns.namespace,
-              svc.serviceName,
-              ver.version,
-              methodUpperCase,
+              method: methodUpperCase,
+              service: svc.serviceName,
+              namespace: ns.namespace,
+              version: ver.version,
+              requestBody: ep.datatype?.requestBody,
+              requestContentType: ep.datatype?.requestContentType,
+              replica: ver.replica ?? 1,
+            };
+
+            baseDataMap.set(ep.endpointId, { baseData, responses: ep.datatype?.responses });
+
+            // collect endpoint sample data (fake realtime data)
+            const endpointSampleData = this.collectEndpointSampleData(
               convertDate,
-              ep.datatype,
-              trafficPropagationResults.get(ep.endpointId),
+              baseData,
+              ep.datatype?.responses
             );
+            sampleRealTimeDataList.push(...endpointSampleData);
           }
         }
       }
     }
 
-    return { realTimeDataList, sampleRealTimeDataList, replicaCountList };
+    return { sampleRealTimeDataList, replicaCountList, baseDataMap };
   }
 
-  private collectEndpointRealtimeData(
-    realTimeDataList: TRealtimeData[],
-    sampleRealTimeDataList: TRealtimeData[],
-    uniqueServiceName: string,
-    uniqueEndpointName: string,
-    namespace: string,
-    service: string,
-    version: string,
-    methodUpperCase: TRequestTypeUpper,
+  private collectEndpointSampleData(
     convertDate: number,
-    datatype?: TSimulationEndpointDatatype,
-    trafficPropagationResult?: {
-      entryEndpoint: string;
-      requestCount: number;
-      errorCount: number;
-      maxLatency: number;
-    }[],
-  ) {
+    baseData: TBaseRealtimeData,
+    responses?: TSimulationResponseBody[],
+  ): TRealtimeData[] {
     // Create a response map based on datatype
     const respMap = new Map<string, { body: string; contentType: string }>();
-    datatype?.responses?.forEach(r => {
+    responses?.forEach(r => {
       respMap.set(String(r.status), {
         body: r.responseBody,
         contentType: r.responseContentType
@@ -252,127 +273,176 @@ export default class TrafficSimulator extends Simulator {
     });
     const sampleStatuses = [...respMap.keys()];
 
-    const baseData = {
-      uniqueServiceName,
-      uniqueEndpointName,
+    const endpointSampleData: TRealtimeData[] = sampleStatuses.map(status => ({
+      ...baseData,
+      latency: 0,
       timestamp: convertDate * 1000, // microseconds
-      method: methodUpperCase,
-      service,
-      namespace,
-      version,
-      requestBody: datatype?.requestBody,
-      requestContentType: datatype?.requestContentType,
-      replica: undefined,
-    };
+      status,
+      responseBody: respMap.get(status)?.body,
+      responseContentType: respMap.get(status)?.contentType,
+    }))
 
-
-    sampleRealTimeDataList.push(
-      ...sampleStatuses.map(status => ({
-        ...baseData,
-        latency: 0,
-        status,
-        responseBody: respMap.get(status)?.body,
-        responseContentType: respMap.get(status)?.contentType,
-      }))
-    );
-
-
-    if (trafficPropagationResult) {
-      const resp200 = respMap.get("200");
-      const resp500 = respMap.get("500");
-      for (const result of trafficPropagationResult) {
-        const { requestCount, errorCount, maxLatency } = result;
-        const successCount = requestCount - errorCount;
-
-        for (let i = 0; i < successCount; i++) {
-          realTimeDataList.push({
-            ...baseData,
-            latency: maxLatency,
-            status: "200",
-            responseBody: resp200?.body,
-            responseContentType: resp200?.contentType,
-          });
-        }
-
-        for (let i = 0; i < errorCount; i++) {
-          realTimeDataList.push({
-            ...baseData,
-            latency: maxLatency,
-            status: "500",
-            responseBody: resp500?.body,
-            responseContentType: resp500?.contentType,
-          });
-        }
-      }
-    }
+    return endpointSampleData;
   }
-  private getTrafficMap(endpointMetrics?: {
-    info: TSimulationEndpointMetricInfo[];
-    requests: TSimulationEndpointRequestCount[];
-  }): {
-    requestCounts: Map<string, number>;
-    latencyMap: Map<string, number>;   // latency >= 0
-    errorRateMap: Map<string, number>; // errorRate in [0,1]
+
+  private getTrafficMap(
+    endpointMetrics: TSimulationEndpointMetric[],
+    simulationDurationInDays: number,
+  ): {
+    hourlyRequestCountsForEachDayMap: Map<string, number[][]>; // key: endpointId, value: array of [days][24 hours]
+    latencyMap: Map<string, number>;      // latency >= 0 key:endpointId value: latencyMs
+    errorRateMap: Map<string, number>;    // errorRate in [0,1] key:endpointId value: errorRatePercentage / 100
   } {
-    if (!endpointMetrics) {
-      return {
-        requestCounts: new Map(),
-        latencyMap: new Map(),
-        errorRateMap: new Map(),
-      };
-    }
-
-    const requestCounts = new Map<string, number>();
-    for (const { endpointId, requestCount } of endpointMetrics.requests) {
-      requestCounts.set(endpointId, (requestCounts.get(endpointId) ?? 0) + requestCount);
-    }
-
+    const hourlyRequestCountsForEachDayMap = new Map<string, number[][]>();
     const latencyMap = new Map<string, number>();
     const errorRateMap = new Map<string, number>();
-    for (const { endpointId, latencyMs, errorRate } of endpointMetrics.info) {
-      latencyMap.set(endpointId, latencyMs < 0 ? 0 : latencyMs);
-      errorRateMap.set(endpointId, Math.min(Math.max(errorRate ?? 0, 0), 100) / 100);
+
+    if (!endpointMetrics) {
+      return { hourlyRequestCountsForEachDayMap, latencyMap, errorRateMap };
     }
 
-    return { requestCounts, latencyMap, errorRateMap };
+    const SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
+    const PROBABILITY_OF_MUTATION = 0.3;
+
+
+    for (const metric of endpointMetrics) {
+      const endpointId = metric.endpointId;
+
+      // latencyMap
+      const latencyMs = metric.latencyMs ?? 0;
+      latencyMap.set(endpointId, latencyMs);
+
+      // errorRateMap
+      const errorRate = (metric.errorRatePercentage ?? 0) / 100;
+      errorRateMap.set(endpointId, errorRate);
+
+      // hourlyRequestCountsForEachDayMap
+      const baseDailyRequestCount = metric.expectedExternalDailyRequestCount ?? 0;
+      if (baseDailyRequestCount === 0) continue;
+      // Hourly request counts for each day (e.g., for the 3rd day, the count from 11:00 to 12:00 is dailyRequestCounts[2][11])
+      const dailyRequestCounts: number[][] = [];
+
+      for (let day = 0; day < simulationDurationInDays; day++) {
+        const isMutated = Math.random() < PROBABILITY_OF_MUTATION;
+        const mutationScaleRate = isMutated
+          ? SCALE_FACTORS[Math.floor(Math.random() * SCALE_FACTORS.length)]
+          : 1;
+
+        const realRequestCountForThisday = Math.round(
+          baseDailyRequestCount * mutationScaleRate
+        );
+
+        dailyRequestCounts.push(
+          this.distributeDailyRequestToEachHours(realRequestCountForThisday)
+        );
+      }
+
+      hourlyRequestCountsForEachDayMap.set(endpointId, dailyRequestCounts);
+    }
+
+    return { hourlyRequestCountsForEachDayMap, latencyMap, errorRateMap };
   }
-  // Simulates traffic propagation starting from multiple entry endpoint and aggregates results
-  private simulateTrafficPropagationFromAllEntries(
-    dependOnMap: Map<string, Set<string>>,
-    requestCounts: Map<string, number>,
-    latencyMap: Map<string, number>,
-    errorRateMap: Map<string, number>
-  ): Map<string, { entryEndpoint: string; requestCount: number; errorCount: number; maxLatency: number }[]> {
-    // Map to aggregate stats per endpoint, with an array of stats from different entry endpoint
-    const aggregatedResults = new Map<string, { entryEndpoint: string; requestCount: number; errorCount: number; maxLatency: number }[]>();
 
-    // For each starting entry point and its initial request count
-    for (const [entryPointId, count] of requestCounts.entries()) {
-      // Run single entry propagation
-      const { stats } = this.simulateTrafficPropagationFromSingleEntry(
-        entryPointId,
-        count,
-        dependOnMap,
-        latencyMap,
-        errorRateMap
-      );
+  // Randomly distribute the total daily request count across each hour of the day
+  private distributeDailyRequestToEachHours(realRequestCountForThisday: number): number[] {
+    if (realRequestCountForThisday === 0) {
+      return new Array(24).fill(0);;
+    }
 
-      // Aggregate results: for each endpoint reached, add the stats with origin info
-      for (const [targetEndpointId, stat] of stats.entries()) {
-        if (!aggregatedResults.has(targetEndpointId)) {
-          aggregatedResults.set(targetEndpointId, []);
+    // Generate random request count weights for 24 hours
+    const weights = Array.from({ length: 24 }, () => Math.random());
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    const normalizeWeights = weights.map(w => w / totalWeight);
+    const hourlyRequestCountsForThisDay: number[] =
+      normalizeWeights.map(w => Math.round(w * realRequestCountForThisday));
+
+    // Fix rounding error
+    let diff = realRequestCountForThisday
+      - hourlyRequestCountsForThisDay.reduce((a, b) => a + b, 0);
+    if (diff !== 0) {// fix rounding error
+      const indices = Array.from({ length: 24 }, (_, i) => i);
+      indices.sort((a, b) => normalizeWeights[b] - normalizeWeights[a]);
+      let i = 0;
+      while (diff !== 0) {
+        const index = indices[i % 24];
+
+        if (diff > 0) {
+          hourlyRequestCountsForThisDay[index]++;
+          diff--;
+        } else if (diff < 0) {
+          const allZero = hourlyRequestCountsForThisDay.every(count => count === 0);
+          if (allZero) {
+            break;
+          }
+          if (hourlyRequestCountsForThisDay[index] > 0) {
+            hourlyRequestCountsForThisDay[index]--;
+            diff++;
+          }
         }
-        aggregatedResults.get(targetEndpointId)!.push({
-          entryEndpoint: entryPointId,
-          requestCount: stat.requestCount,
-          errorCount: stat.errorCount,
-          maxLatency: stat.maxLatency,
-        });
+        i++;
       }
     }
-
-    return aggregatedResults;
+    return hourlyRequestCountsForThisDay;
   }
+
+
+  private aggregateSimulateTrafficStats(
+    dependOnMap: Map<string, Set<string>>,
+    hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
+    latencyMap: Map<string, number>,
+    errorRateMap: Map<string, number>
+  ): TrafficSimulationResult {
+
+    const results: TrafficSimulationResult = new Map();
+
+    console.log(hourlyRequestCountsForEachDayMap)
+    for (const [entryPointId, dailyHourlyCounts] of hourlyRequestCountsForEachDayMap.entries()) {
+      for (let day = 0; day < dailyHourlyCounts.length; day++) {
+        const hourlyCounts = dailyHourlyCounts[day];
+        for (let hour = 0; hour < 24; hour++) {
+          const count = hourlyCounts[hour];
+          if (count <= 0) continue;
+
+          const { stats } = this.simulateTrafficPropagationFromSingleEntry(
+            entryPointId,
+            count,
+            dependOnMap,
+            latencyMap,
+            errorRateMap
+          );
+          // console.log(stats.entries())
+
+          if (!results.has(day)) {
+            results.set(day, new Map());
+          }
+          const dailyStats: DailyStatsMap = results.get(day)!;
+          if (!dailyStats.has(hour)) {
+            dailyStats.set(hour, new Map());
+          }
+          const hourlyStats: HourlyStatsMap = dailyStats.get(hour)!;
+
+
+          for (const [targetEndpointId, stat] of stats.entries()) {
+            if (!hourlyStats.has(targetEndpointId)) {
+              hourlyStats.set(targetEndpointId, {
+                requestCount: 0,
+                errorCount: 0,
+                maxLatency: 0
+              });
+            }
+            const existingStats = hourlyStats.get(targetEndpointId)!;
+            existingStats.requestCount += stat.requestCount;
+            existingStats.errorCount += stat.errorCount;
+            existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
+            console.log(hourlyStats.get(targetEndpointId))
+          }
+        }
+      }
+    }
+    return results;
+  }
+
+
   private simulateTrafficPropagationFromSingleEntry(
     entryPointId: string,
     initialRequestCount: number,
@@ -446,7 +516,100 @@ export default class TrafficSimulator extends Simulator {
     return { entryPointId, stats };
   }
 
+  private generateRealtimeDataFromSimulationResults(
+    baseDataMap: Map<string, BaseDataWithResponses>,
+    trafficPropagationResults: TrafficSimulationResult,
+    convertDate: number
+  ): Map<string, TCombinedRealtimeData[]> {
+    const realtimeDataPerHourMap = new Map<string, TCombinedRealtimeData[]>(); // key: "day-hour"
 
+    for (const [day, dailyStats] of trafficPropagationResults.entries()) {
+      for (const [hour, hourlyStats] of dailyStats.entries()) {
+        let realtimeDataList: TRealtimeData[] = [];
+
+        for (const [endpointId, stats] of hourlyStats.entries()) {
+          const baseDataWithResp = baseDataMap.get(endpointId);
+          if (!baseDataWithResp) continue;
+
+          const { baseData, responses } = baseDataWithResp;
+          const timestampMicro = (convertDate + day * 24 * 3600 * 1000 + hour * 3600 * 1000) * 1000;
+
+          // Generate successful response realtime data
+          const successCount = stats.requestCount - stats.errorCount;
+          if (successCount > 0) {
+            const successSamples = this.sampleResponseData(
+              baseData,
+              timestampMicro,
+              stats.maxLatency,
+              successCount,
+              responses,
+              false
+            );
+            realtimeDataList = realtimeDataList.concat(successSamples);
+          }
+
+          // Generate failed response realtime data (only server error)
+          if (stats.errorCount > 0) {
+            const errorSamples = this.sampleResponseData(
+              baseData,
+              timestampMicro,
+              stats.maxLatency,
+              stats.errorCount,
+              responses,
+              true
+            );
+            realtimeDataList = realtimeDataList.concat(errorSamples);
+          }
+        }
+
+        const key = `${day}-${hour}`;
+        realtimeDataPerHourMap.set(key, new RealtimeDataList(realtimeDataList).toCombinedRealtimeData().toJSON());
+      }
+    }
+    return realtimeDataPerHourMap;
+  }
+
+
+
+  private sampleResponseData(
+    baseData: TBaseRealtimeData,
+    timestamp: number,
+    latency: number,
+    count: number,
+    responses?: TSimulationResponseBody[],
+    isError: boolean = false
+  ): TRealtimeData[] {
+    const respMap = new Map<string, { body: string; contentType: string }>();
+    responses?.forEach(r => {
+      respMap.set(String(r.status), {
+        body: r.responseBody,
+        contentType: r.responseContentType
+      });
+    });
+
+
+    const status = isError
+      ? [...respMap.keys()].find(s => s.startsWith("5")) || "500"
+      : [...respMap.keys()].find(s => s.startsWith("2")) || "200";
+
+    const response = respMap.get(status);
+
+    const sampleList: TRealtimeData[] = [];
+    for (let i = 0; i < count; i++) {
+      // Simulate latency fluctuation +-10%
+      const jitteredLatency = Math.round(latency * (0.9 + Math.random() * 0.2));
+      sampleList.push({
+        ...baseData,
+        timestamp,
+        latency: jitteredLatency,
+        status,
+        responseBody: response?.body,
+        responseContentType: response?.contentType,
+      });
+    }
+
+    return sampleList;
+  }
 
 
   // Retrieve necessary data from kmamiz and convert it into a YAML file that can be used to generate static simulation data

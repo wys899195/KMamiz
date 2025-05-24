@@ -86,24 +86,7 @@ export default class ServiceOperator {
       dataType.map((dt) => new EndpointDataType(dt))
     );
   }
-
-  postSimulationRetrieve(data: {
-    rlDataList: TCombinedRealtimeData[];
-    dependencies: TEndpointDependency[];
-    dataType: TEndpointDataType[];
-    replicaCount: TReplicaCount[];
-  }) {
-    const {rlDataList, dependencies, dataType, replicaCount } = data;
-
-
-    ServiceOperator.getInstance().simulateUpdateCache(
-      new CombinedRealtimeDataList(rlDataList),
-      new EndpointDependencies(dependencies),
-      dataType.map((dt) => new EndpointDataType(dt)),
-      replicaCount,
-    );
-  }
-
+  
   private getDataForAggregate() {
     const combinedRealtimeData = DataCache.getInstance()
       .get<CCombinedRealtimeData>("CombinedRealtimeData")
@@ -121,9 +104,7 @@ export default class ServiceOperator {
     return { combinedRealtimeData, endpointDependencies };
   }
 
-  async createHistoricalAndAggregatedData() {
-    const now = Utils.BelongsToMinuteTimestamp(Date.now());
-
+  async createHistoricalAndAggregatedData(createTime: number = Date.now()) {
     const info = this.getDataForAggregate();
     if (!info) return;
 
@@ -131,10 +112,10 @@ export default class ServiceOperator {
     const serviceDependencies = endpointDependencies.toServiceDependencies();
     const replicas =
       DataCache.getInstance().get<CReplicas>("ReplicaCounts").getData() || [];
-    const rlData = combinedRealtimeData.adjustTimestamp(now);
+    const rlData = combinedRealtimeData.adjustTimestamp(createTime);
 
     const historicalData = await this.createHistoricalData(
-      now,
+      createTime,
       rlData,
       serviceDependencies,
       replicas
@@ -199,6 +180,68 @@ export default class ServiceOperator {
     );
     return result;
   }
+
+
+  async createHistoricalAndAggregatedDataSimulate() {
+    const info = this.getDataForAggregate();
+    if (!info) return;
+
+    const { combinedRealtimeData, endpointDependencies } = info;
+    const serviceDependencies = endpointDependencies.toServiceDependencies();
+    const replicas = DataCache.getInstance().get<CReplicas>("ReplicaCounts").getData() || [];
+
+    const historicalData = await this.createHistoricalDataSimulate(
+      combinedRealtimeData,
+      serviceDependencies,
+      replicas
+    );
+
+    if (!historicalData) return;
+
+    const aggregatedData = historicalData.toAggregatedData();
+
+    const prevAggRaw = await MongoOperator.getInstance().getAggregatedData();
+    let newAggData = new AggregatedData(aggregatedData);
+    if (prevAggRaw) {
+      const prevAggData = new AggregatedData(prevAggRaw);
+      newAggData = prevAggData.combine(aggregatedData);
+      if (prevAggData.toJSON()._id)
+        newAggData.toJSON()._id = prevAggData.toJSON()._id;
+    }
+
+    await MongoOperator.getInstance().save(
+      newAggData.toJSON(),
+      AggregatedDataModel
+    );
+    DataCache.getInstance()
+      .get<CCombinedRealtimeData>("CombinedRealtimeData")
+      .reset();
+  }
+
+  private async createHistoricalDataSimulate(
+    rlData: CombinedRealtimeDataList,
+    serviceDependencies: TServiceDependency[],
+    replicas: TReplicaCount[]
+  ) {
+    const historicalData = rlData.toHistoricalData(
+      serviceDependencies,
+      replicas
+    )[0];
+    if (!historicalData) return;
+    const result = new HistoricalData(historicalData).updateRiskValue(
+      RiskAnalyzer.RealtimeRisk(
+        rlData.toJSON(),
+        serviceDependencies,
+        replicas
+      )
+    );
+    await MongoOperator.getInstance().insertMany(
+      [result.toJSON()],
+      HistoricalDataModel
+    );
+    return result;
+  }
+
 
   retrieve(request: TExternalDataProcessorRequest) {
     if (!this.realtimeWorker) this.registerRealtimeWorker();
@@ -293,30 +336,48 @@ export default class ServiceOperator {
       .setData(dep);
   }
 
-  private simulateUpdateCache(
-    data: CombinedRealtimeDataList,
-    dep: EndpointDependencies,
-    dataType: EndpointDataType[],
-    replicaCount:TReplicaCount[],
-  ) {
-    DataCache.getInstance()
-      .get<CCombinedRealtimeData>("CombinedRealtimeData")
-      .setData(data);
+  updateStaticSimulateDataToCache(data: {
+    dependencies: TEndpointDependency[],
+    dataType: TEndpointDataType[],
+    replicaCount: TReplicaCount[],
+  }) {
+    const dep = new EndpointDependencies(data.dependencies);
+    const dt = data.dataType.map((dt) => new EndpointDataType(dt));
+
     DataCache.getInstance()
       .get<CEndpointDependencies>("EndpointDependencies")
       .setData(dep);
-
     DataCache.getInstance()
       .get<CReplicas>("ReplicaCounts")
-      .setData(replicaCount);
-
+      .setData(data.replicaCount);
     DataCache.getInstance()
       .get<CEndpointDataType>("EndpointDataType")
-      .setData(dataType);
-
+      .setData(dt);
     ServiceUtils.getInstance().updateLabel();
     DataCache.getInstance()
       .get<CLabeledEndpointDependencies>("LabeledEndpointDependencies")
       .setData(dep);
+  }
+
+  async updateDynamicSimulateData(data: {
+    realtimeDataPerHourMap: Map<string, TCombinedRealtimeData[]>
+  }) {
+    const sortedEntries = [...data.realtimeDataPerHourMap.entries()].sort(
+      ([a], [b]) => {
+        const [dayA, hourA] = a.split("-").map(Number);
+        const [dayB, hourB] = b.split("-").map(Number);
+        if (dayA !== dayB) return dayA - dayB;
+        return hourA - hourB;
+      }
+    );
+    for (const [ key , hourlyCombinedDataList] of sortedEntries) {
+      console.log(`hourlyCombinedDataList ${key}: ${JSON.stringify(hourlyCombinedDataList,null,2)}`)
+      if (hourlyCombinedDataList.length > 0) {
+        DataCache.getInstance()
+          .get<CCombinedRealtimeData>("CombinedRealtimeData")
+          .setData(new CombinedRealtimeDataList(hourlyCombinedDataList));
+        await this.createHistoricalAndAggregatedDataSimulate();
+      }
+    }
   }
 }

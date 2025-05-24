@@ -64,7 +64,6 @@ export const simulationDependOnSchema = z.object({
   ).optional(),
 });
 
-
 export const simulationEndpointDependencySchema = z.object({
   endpointId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
@@ -74,39 +73,46 @@ export const simulationEndpointDependencySchema = z.object({
 })
   .strict();
 
-export const simulationEndpointMetricInfoSchema = z.object({
+
+export const simulationTrafficConfigSchema = z.object({
+  simulationDurationInDays: z.number()
+    .int({ message: "simulationDurationInDays must be an integer." })
+    .min(1, { message: "simulationDurationInDays must be at least 1." })
+    .max(7, { message: "simulationDurationInDays cannot exceed 7." }),
+ // TODO: May expand with additional config options such as chaosMonkeyEnabled, errorRateAmplificationFactor, etc.
+}).strict();
+
+export const simulationEndpointMetricSchema = z.object({
   endpointId: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
     z.string().min(1, { message: "endpointId cannot be empty." })
   ),
   latencyMs: z.number().min(0, { message: "latencyMs must be zero or greater." }),
-  errorRate: z
+  errorRatePercentage: z
     .number()
     .refine((val) => val >= 0 && val <= 100, {
       message: "Invalid errorRate. It must be between 0 and 100.",
     }).optional(),
+  expectedExternalDailyRequestCount: z
+    .number()
+    .int({ message: "expectedExternalDailyRequestCount must be an integer." })
+    .min(0, { message: "expectedExternalDailyRequestCount cannot be negative." })
+    .optional(),
 }).strict();
 
-export const simulationEndpointRequestCountSchema = z.object({
-  endpointId: z.preprocess(
-    (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointId cannot be empty." })
-  ),
-  requestCount: z
-    .number()
-    .int({ message: "requestCount must be an integer." })
-    .min(0, { message: "requestCount cannot be negative." }),
+export const trafficSimulationSchema = z.object({
+  config: simulationTrafficConfigSchema,
+  endpointMetrics: z.array(simulationEndpointMetricSchema),
 }).strict();
 
 export const simulationYAMLSchema = z.object({
   endpointsInfo: z.array(simulationNamespaceSchema),
   endpointDependencies: z.array(simulationEndpointDependencySchema),
-  endpointMetrics: z.object({
-    info: z.array(simulationEndpointMetricInfoSchema),
-    requests: z.array(simulationEndpointRequestCountSchema),
-  }).optional(),
-}).strict();
+  trafficSimulation: trafficSimulationSchema.optional(),
+});
 
+
+// endpointsInfo
 export type TSimulationResponseBody = z.infer<typeof simulationResponseBodySchema>;
 export type TSimulationEndpointDatatype = z.infer<typeof simulationEndpointDatatypeSchema>;
 export type TSimulationEndpointInfo = z.infer<typeof simulationEndpointInfoSchema>;
@@ -114,9 +120,15 @@ export type TSimulationEndpoint = z.infer<typeof simulationEndpointSchema>;
 export type TSimulationServiceVersion = z.infer<typeof simulationServiceVersionSchema>;
 export type TSimulationService = z.infer<typeof simulationServiceSchema>;
 export type TSimulationNamespace = z.infer<typeof simulationNamespaceSchema>;
+
+// endpointDependencies
 export type TSimulationDependOn = z.infer<typeof simulationDependOnSchema>;
 export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
-export type TSimulationEndpointMetricInfo = z.infer<typeof simulationEndpointMetricInfoSchema>;
-export type TSimulationEndpointRequestCount = z.infer<typeof simulationEndpointRequestCountSchema>;
+
+//  trafficSimulation
+export type TSimulationTrafficConfig = z.infer<typeof simulationTrafficConfigSchema>;
+export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
+export type TSimulationTraffics = z.infer<typeof trafficSimulationSchema>;
+
 export type TSimulationYAML = z.infer<typeof simulationYAMLSchema>;
 

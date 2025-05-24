@@ -92,12 +92,11 @@ export default class Simulator {
       });
     });
 
-    parsedYAML.endpointMetrics?.info.forEach(m => {
-      m.endpointId = String(m.endpointId);
-    });
-    parsedYAML.endpointMetrics?.requests.forEach(r => {
-      r.endpointId = String(r.endpointId);
-    });
+    if (parsedYAML.trafficSimulation) {
+      parsedYAML.trafficSimulation.endpointMetrics.forEach(m => {
+        m.endpointId = String(m.endpointId);
+      });
+    }
 
     return errorMessages;
   }

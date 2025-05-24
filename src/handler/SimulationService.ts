@@ -68,7 +68,7 @@ export default class SimulationService extends IRequestHandler {
           try {
             //clear simulator data first
             await ImportExportHandler.getInstance().clearData();
-            
+
             //retrieve data from yaml
             const result = simulator.yamlToSimulationData(decodedYAMLData);
 
@@ -79,13 +79,15 @@ export default class SimulationService extends IRequestHandler {
             } else {
               //update to cache and create historical and aggregatedData
               try {
-                ServiceOperator.getInstance().postSimulationRetrieve({
-                  rlDataList: result.cbRealtimeDataList,
+                ServiceOperator.getInstance().updateStaticSimulateDataToCache({
                   dependencies: result.endpointDependencies,
                   dataType: result.dataType,
                   replicaCount: result.replicaCountList
                 });
-                ServiceOperator.getInstance().createHistoricalAndAggregatedData();
+
+                await ServiceOperator.getInstance().updateDynamicSimulateData({
+                  realtimeDataPerHourMap:result.realtimeDataPerHourMap
+                });
                 return res.status(200).json({ message: "ok" });
               } catch (err) {
                 return res.status(500).json({ message: `Error while caching and creating historical and aggregated data:\n${err instanceof Error ? err.message : err}` });
