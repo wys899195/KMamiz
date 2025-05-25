@@ -32,6 +32,7 @@ export const simulationEndpointSchema = z.object({
 }).strict();
 
 export const simulationServiceVersionSchema = z.object({
+  serviceId: z.string().optional(),  // Users do not need to provide this; it will be populated by the system later.
   version: z.preprocess(
     (val) => (typeof val === "number" ? val.toString() : val),
     z.string().min(1, { message: "service name cannot be empty." })
@@ -101,7 +102,7 @@ export const simulationEndpointMetricSchema = z.object({
 }).strict();
 
 export const trafficSimulationSchema = z.object({
-  config: simulationTrafficConfigSchema,
+  config: simulationTrafficConfigSchema.optional(),
   endpointMetrics: z.array(simulationEndpointMetricSchema),
 }).strict();
 

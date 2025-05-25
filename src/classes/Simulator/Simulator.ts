@@ -24,6 +24,7 @@ export default class Simulator {
       if (validationResult.success) {
         const preprocessErrors = this.preprocessParsedYaml(parsedYAML);
         if (preprocessErrors.length > 0) {
+          
           return {
             validationErrorMessage: "Preprocessing errors:\n" + preprocessErrors.map(e => `• ${e}`).join("\n"),
             parsedYAML: null,
@@ -34,15 +35,18 @@ export default class Simulator {
           parsedYAML: parsedYAML
         };
       } else {
+
         const formatErrorMessage = validationResult.error.errors
           .map((err) => `• ${err.path.join(".")}: ${err.message}`)
           .join("\n");
+                 
         return {
           validationErrorMessage: "YAML format error:\n" + formatErrorMessage,
           parsedYAML: null
         };
       }
     } catch (e) {
+
       return {
         validationErrorMessage: `An error occurred while parsing YAML \n\n${e instanceof Error ? e.message : e}`,
         parsedYAML: null,
@@ -51,29 +55,205 @@ export default class Simulator {
   }
 
   private preprocessParsedYaml(parsedYAML: TSimulationYAML): string[] {
-    // 1. Convert all version fields to strings
-    // 2. De-identify requestBody and responseBody in Datatype
+    // Preprocess and validate parsed YAML data:
+    // 1. Normalize data types (convert versions and endpointIds to strings)
+    // 2. Validate endpoint IDs for duplicates, existence, and self-dependency
+    // 3. Parse and sanitize JSON requestBody and responseBody in datatype
+    // 4. Collect and return any validation error messages
+
     const errorMessages: string[] = [];
+
+    // Assign and validate unique serviceId for each service version ===
+    const existingServiceIds = new Set<string>();
     parsedYAML.endpointsInfo.forEach(namespace => {
       namespace.services.forEach(service => {
         service.versions.forEach(version => {
-          version.version = String(version.version);
+          // Generate a unique serviceId
+          version.version = String(version.version).trim();// Ensure version is a string
+          const serviceId = this.generateUniqueServiceName(namespace.namespace, service.serviceName, version.version);
+
+          // Check for duplicates
+          if (existingServiceIds.has(serviceId)) {
+            errorMessages.push(
+              `Error: Duplicate serviceId "${serviceId}" found in service "${service.serviceName}", version "${version.version}".`
+            );
+          } else {
+            existingServiceIds.add(serviceId);
+            version.serviceId = serviceId;
+          }
+        });
+      });
+    });
+
+    // If duplicate serviceId errors, return immediately
+    if (errorMessages.length > 0) {
+      return errorMessages;
+    }
+
+    // Collect all endpointIds defined in endpointsInfo and check for duplicates
+    const allDefinedEndpointIds = new Set<string>();
+
+    // Process endpointsInfo: convert fields and check for duplicate endpointIds
+    parsedYAML.endpointsInfo.forEach(namespace => {
+      namespace.services.forEach(service => {
+        service.versions.forEach(version => {
           version.endpoints.forEach(endpoint => {
-            endpoint.endpointId = String(endpoint.endpointId);
+            endpoint.endpointId = String(endpoint.endpointId).trim();// Ensure endpointId is a string
+            const id = endpoint.endpointId;
+            if (allDefinedEndpointIds.has(id)) {
+              errorMessages.push(`Duplicate endpointId found in endpointsInfo: ${id}, please rename it.`);
+            } else {
+              allDefinedEndpointIds.add(id);
+            }
+          });
+        });
+      });
+    });
+
+    if (errorMessages.length > 0) {
+      // Return immediately if duplicates found
+      return errorMessages;
+    }
+
+    // Validate endpointDependencies:
+    // - Convert endpointIds to strings
+    // - Check that source endpointId exists in endpointsInfo
+    // - Check that each target endpointId in dependOn exists in endpointsInfo
+    // - Ensure no endpoint depends on itself
+    // - Check for duplicate source endpointIds within endpointDependencies
+    parsedYAML.endpointDependencies?.forEach((dep, index) => {
+      dep.endpointId = String(dep.endpointId).trim();
+      if (!allDefinedEndpointIds.has(dep.endpointId)) {
+        errorMessages.push(
+          `Error in endpointDependencies[${index}]: source endpointId "${dep.endpointId}" is not defined in endpointsInfo`
+        );
+      }
+
+      dep.dependOn.forEach((d, subIndex) => {
+        d.endpointId = String(d.endpointId).trim();
+        if (!allDefinedEndpointIds.has(d.endpointId)) {
+          errorMessages.push(
+            `Error in endpointDependencies[${index}].dependOn[${subIndex}]: target endpointId "${d.endpointId}" is not defined in endpointsInfo`
+          );
+        }
+        if (d.endpointId === dep.endpointId) {
+          errorMessages.push(
+            `Error in endpointDependencies[${index}].dependOn[${subIndex}]: endpoint cannot depend on itself ("${dep.endpointId}")`
+          );
+        }
+      });
+    });
+    const encounteredSourceEndpointIds = new Set<string>();
+    parsedYAML.endpointDependencies?.forEach((dep, index) => {
+      const sourceId = String(dep.endpointId).trim();
+      if (encounteredSourceEndpointIds.has(sourceId)) {
+        errorMessages.push(
+          `Error: Duplicate source endpointId "${sourceId}" found in endpointDependencies at index ${index}.`
+        );
+      } else {
+        encounteredSourceEndpointIds.add(sourceId);
+      }
+    });
+
+    if (errorMessages.length > 0) {
+      // Return immediately if duplicates found
+      return errorMessages;
+    }
+
+    // Validate that each endpointId in trafficSimulation.endpointMetrics exists in endpointsInfo
+    parsedYAML.trafficSimulation?.endpointMetrics.forEach((m, index) => {
+      const mId = String(m.endpointId).trim();
+      if (!allDefinedEndpointIds.has(mId)) {
+        errorMessages.push(
+          `Error in trafficSimulation.endpointMetrics[${index}]: endpointId "${mId}" is not defined in endpointsInfo`
+        );
+      }
+    });
+
+    if (errorMessages.length > 0) {
+      return errorMessages;
+    }
+
+    // Convert all endpointIds in the YAML to uniqueEndpointNames 
+    const originalToUniqueEndpointIdMap = new Map<string, string>();
+    parsedYAML.endpointsInfo.forEach((namespace) => {
+      namespace.services.forEach((service) => {
+        service.versions.forEach((version) => {
+          const uniqueServiceName = version.serviceId!;
+          version.endpoints.forEach((endpoint) => {
+            const originalEndpointId = endpoint.endpointId;
+            const method = endpoint.endpointInfo.method.toUpperCase();
+            const path = endpoint.endpointInfo.path;
+            const newEndpointId = this.generateUniqueEndpointName(
+              uniqueServiceName,
+              service.serviceName,
+              namespace.namespace,
+              method,
+              path
+            );
+            endpoint.endpointId = newEndpointId;
+            originalToUniqueEndpointIdMap.set(originalEndpointId, newEndpointId);
+          });
+        });
+      });
+    });
+    parsedYAML.endpointDependencies?.forEach((dep, index) => {
+      const originalSourceId = dep.endpointId;
+      const mappedSourceId = originalToUniqueEndpointIdMap.get(originalSourceId);
+      if (mappedSourceId) {
+        dep.endpointId = mappedSourceId;
+      } else {
+        errorMessages.push(
+          `Error: Cannot map source endpointId "${originalSourceId}" in endpointDependencies[${index}].`
+        );
+      }
+      dep.dependOn.forEach((d, subIndex) => {
+        const originalTargetId = d.endpointId;
+        const mappedTargetId = originalToUniqueEndpointIdMap.get(originalTargetId);
+        if (mappedTargetId) {
+          d.endpointId = mappedTargetId;
+        } else {
+          errorMessages.push(
+            `Error: Cannot map target endpointId "${originalTargetId}" in endpointDependencies[${index}].dependOn[${subIndex}].`
+          );
+        }
+      });
+    });
+    parsedYAML.trafficSimulation?.endpointMetrics.forEach((metric, index) => {
+      const originalId = metric.endpointId;
+      const mappedId = originalToUniqueEndpointIdMap.get(originalId);
+      if (mappedId) {
+        metric.endpointId = mappedId;
+      } else {
+        errorMessages.push(
+          `Error: Cannot map endpointId "${originalId}" in trafficSimulation.endpointMetrics[${index}].`
+        );
+      }
+    });
+
+    // Attempt to parse requestBody and responseBody
+    parsedYAML.endpointsInfo.forEach((namespace, nsIndex) => {
+      namespace.services.forEach((service, svcIndex) => {
+        service.versions.forEach((version, verIndex) => {
+          version.endpoints.forEach((endpoint, epIndex) => {
             if (endpoint.datatype) {
-              if (endpoint.datatype.requestContentType == "application/json") {
+              if (endpoint.datatype.requestContentType === "application/json") {
                 const result = this.preprocessJsonBody(endpoint.datatype.requestBody);
                 if (!result.isSuccess) {
-                  errorMessages.push(`Invalid requestBody in endpoint ${endpoint.endpointId}: ${result.warningMessage}`);
+                  errorMessages.push(
+                    `Error in endpointsInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}]: Invalid requestBody in endpoint "${endpoint.endpointId}": ${result.warningMessage}`
+                  );
                 } else {
                   endpoint.datatype.requestBody = result.processedBodyString;
                 }
               }
-              endpoint.datatype.responses.forEach(response => {
+              endpoint.datatype.responses.forEach((response, respIndex) => {
                 if (response.responseContentType === "application/json") {
                   const result = this.preprocessJsonBody(response.responseBody);
                   if (!result.isSuccess) {
-                    errorMessages.push(`Invalid responseBody(status:${response.status}) in endpoint ${endpoint.endpointId}: ${result.warningMessage}`);
+                    errorMessages.push(
+                      `Error in endpointsInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}].responses[${respIndex}]: Invalid responseBody (status: ${response.status}) in endpoint "${endpoint.endpointId}": ${result.warningMessage}`
+                    );
                   } else {
                     response.responseBody = result.processedBodyString;
                   }
@@ -84,20 +264,6 @@ export default class Simulator {
         });
       });
     });
-
-    parsedYAML.endpointDependencies?.forEach(dep => {
-      dep.endpointId = String(dep.endpointId);
-      dep.dependOn.forEach(d => {
-        d.endpointId = String(d.endpointId);
-      });
-    });
-
-    if (parsedYAML.trafficSimulation) {
-      parsedYAML.trafficSimulation.endpointMetrics.forEach(m => {
-        m.endpointId = String(m.endpointId);
-      });
-    }
-
     return errorMessages;
   }
 
@@ -297,8 +463,7 @@ export default class Simulator {
     return this.deIdentify(input, false);
   }
 
-
-  protected getExistingUniqueEndpointNameMappings(): Map<string, string> {
+  private getExistingUniqueEndpointNameMappings(): Map<string, string> {
     const entries = DataCache.getInstance()
       .get<CLabelMapping>("LabelMapping")
       .getData()
@@ -317,7 +482,9 @@ export default class Simulator {
     }
     return mapping;
   }
-  protected generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string, existingUniqueEndpointNameMappings: Map<string, string>) {
+
+  private generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string) {
+    const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
     const existing = existingUniqueEndpointNameMappings.get(`${uniqueServiceName}\t${methodUpperCase}\t${path}`);
 
     if (existing) {
@@ -327,6 +494,10 @@ export default class Simulator {
       const url = `${host}${path}`; // port default 80
       return `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
     }
+  }
+
+  private generateUniqueServiceName(namespace: string, serviceName: string, version: string) {
+    return `${serviceName}\t${namespace}\t${version}`;
   }
 
   protected getPathFromUrl(url: string) {

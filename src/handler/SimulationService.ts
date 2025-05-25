@@ -86,7 +86,7 @@ export default class SimulationService extends IRequestHandler {
                 });
 
                 await ServiceOperator.getInstance().updateDynamicSimulateData({
-                  realtimeDataPerHourMap:result.realtimeDataPerHourMap
+                  realtimeDataPerHourMap:result.realtimeCombinedDataPerHourMap
                 });
                 return res.status(200).json({ message: "ok" });
               } catch (err) {

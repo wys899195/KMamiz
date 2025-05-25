@@ -36,7 +36,7 @@ export default class DependencyGraphSimulator extends Simulator {
       };
     }
   }
-  
+
   graphDataToYAML(graph: TGraphData): string {
     const yamlObj: TSimulationYAML = { endpointsInfo: [], endpointDependencies: [] };
 
@@ -164,46 +164,38 @@ export default class DependencyGraphSimulator extends Simulator {
   extractEndpointsInfo(
     endpointsInfo: TSimulationNamespace[],
     convertDate: number,
-    existingUniqueEndpointNameMappings: Map<string, string>
   ): {
     endpointInfoSet: Map<string, TEndpointInfo>;
   } {
 
     const endpointInfoSet = new Map<string, TEndpointInfo>();
     const processedUniqueServiceNameSet = new Set<string>();
-    
+
     for (const ns of endpointsInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
-          const uniqueServiceName = `${svc.serviceName}\t${ns.namespace}\t${ver.version}`;
+          const uniqueServiceName = ver.serviceId!;
 
           // to avoid duplicate processing of the same service
           if (processedUniqueServiceNameSet.has(uniqueServiceName)) continue;
           processedUniqueServiceNameSet.add(uniqueServiceName);
 
           for (const ep of ver.endpoints) {
-            
+
             const { path, method } = ep.endpointInfo;
             const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
-            const uniqueEndpointName = this.generateUniqueEndpointName(
-              uniqueServiceName,
-              svc.serviceName,
-              ns.namespace,
-              methodUpperCase,
-              path,
-              existingUniqueEndpointNameMappings
-            )
+
 
             // create TEndpointInfo and insert into endpointInfoSet(used to create endpointDependencies)
             endpointInfoSet.set(ep.endpointId, {
               uniqueServiceName,
-              uniqueEndpointName,
+              uniqueEndpointName: ep.endpointId,
               service: svc.serviceName,
               namespace: ns.namespace,
               version: ver.version,
               labelName: path,
-              url:"",
-              host:"",
+              url: "",
+              host: "",
               path,
               port: "",
               method: methodUpperCase,
@@ -243,7 +235,7 @@ export default class DependencyGraphSimulator extends Simulator {
         distance: number;
         type: T;
       }[] = [];
-      
+
       let head = 0;
       while (head != queue.length) {
         const [curr, distance] = queue[head++];
@@ -287,17 +279,13 @@ export default class DependencyGraphSimulator extends Simulator {
     return result;
   }
 
-  private parsedYamlToEndpointDependency(parsedYAML: TSimulationYAML){
+  private parsedYamlToEndpointDependency(parsedYAML: TSimulationYAML) {
     const convertDate = Date.now();
-
-    const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
-  
     const {
       endpointInfoSet
     } = this.extractEndpointsInfo(
       parsedYAML.endpointsInfo,
       convertDate,
-      existingUniqueEndpointNameMappings
     );
 
     const {
