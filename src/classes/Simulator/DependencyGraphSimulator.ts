@@ -1,44 +1,51 @@
 import yaml from "js-yaml";
-import Simulator from './Simulator';
+import SimConfigPreprocessor from './SimConfigPreprocessor';
 import { TGraphData } from "../../entities/TGraphData";
 import {
   TSimulationService,
-  TSimulationYAML,
+  TSimulationConfigYAML,
   TSimulationEndpoint,
   TSimulationDependOn,
   TSimulationEndpointDependency,
   TSimulationNamespace,
-} from "../../entities/TSimulationYAML";
-import {TRequestType, TRequestTypeUpper} from '../../entities/TRequestType'
-import {TEndpointDependency, TEndpointInfo } from "../../entities/TEndpointDependency";
+} from "../../entities/TSimulationConfig";
+
+import { TRequestType, TRequestTypeUpper } from '../../entities/TRequestType'
+import { TEndpointDependency, TEndpointInfo } from "../../entities/TEndpointDependency";
 import { EndpointDependencies } from "../EndpointDependencies";
 
-export default class DependencyGraphSimulator extends Simulator {
+export default class DependencyGraphSimulator {
   private static instance?: DependencyGraphSimulator;
   static getInstance = () => this.instance || (this.instance = new this());
 
+  private simConfigProcessor: SimConfigPreprocessor;
+
+  private constructor() {
+    this.simConfigProcessor = new SimConfigPreprocessor();
+  }
+
   yamlToGraphData(yamlString: string): {
-    validationErrorMessage: string
+    errorMessage: string,
     graph: TGraphData,
   } {
-    const { validationErrorMessage, parsedYAML } = this.validateAndParseYAML(yamlString);
+    const { errorMessage, parsedConfig } = this.simConfigProcessor.validateAndPrerocessSimConfig(yamlString);
 
-    if (!parsedYAML) {
+    if (!parsedConfig) {
       return {
-        validationErrorMessage,
+        errorMessage,
         graph: new EndpointDependencies([]).toGraphData(), // graph only has external node
       };
     } else {
-      const endpointDependencies = this.parsedYamlToEndpointDependency(parsedYAML)
+      const endpointDependencies = this.parsedYamlToEndpointDependency(parsedConfig)
       return {
-        validationErrorMessage,
+        errorMessage,
         graph: new EndpointDependencies(endpointDependencies).toGraphData(),
       };
     }
   }
 
   graphDataToYAML(graph: TGraphData): string {
-    const yamlObj: TSimulationYAML = { endpointsInfo: [], endpointDependencies: [] };
+    const yamlObj: TSimulationConfigYAML = { servicesInfo: [], endpointDependencies: [] };
 
     const endpointIdMap = new Map<string, string>();
     const endpointIdCounterMap: Map<string, number> = new Map();
@@ -60,15 +67,15 @@ export default class DependencyGraphSimulator extends Simulator {
       endpointIdMap.set(node.id, newEndpointId);
     });
 
-    // build endpointsInfo
+    // build servicesInfo 
     serviceNodes.forEach((serviceNode) => {
       const [serviceName, namespaceName] = serviceNode.id.split("\t");
 
       //find or create the corresponding namespace object
-      let nsObj = yamlObj.endpointsInfo.find((ns) => ns.namespace === namespaceName);
+      let nsObj = yamlObj.servicesInfo.find((ns) => ns.namespace === namespaceName);
       if (!nsObj) {
         nsObj = { namespace: namespaceName, services: [] };
-        yamlObj.endpointsInfo.push(nsObj);
+        yamlObj.servicesInfo.push(nsObj);
       }
 
       // create service object
@@ -162,7 +169,7 @@ export default class DependencyGraphSimulator extends Simulator {
   }
 
   extractEndpointsInfo(
-    endpointsInfo: TSimulationNamespace[],
+    servicesInfo: TSimulationNamespace[],
     convertDate: number,
   ): {
     endpointInfoSet: Map<string, TEndpointInfo>;
@@ -171,7 +178,7 @@ export default class DependencyGraphSimulator extends Simulator {
     const endpointInfoSet = new Map<string, TEndpointInfo>();
     const processedUniqueServiceNameSet = new Set<string>();
 
-    for (const ns of endpointsInfo) {
+    for (const ns of servicesInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
           const uniqueServiceName = ver.serviceId!;
@@ -279,12 +286,12 @@ export default class DependencyGraphSimulator extends Simulator {
     return result;
   }
 
-  private parsedYamlToEndpointDependency(parsedYAML: TSimulationYAML) {
+  private parsedYamlToEndpointDependency(parsedYAML: TSimulationConfigYAML) {
     const convertDate = Date.now();
     const {
       endpointInfoSet
     } = this.extractEndpointsInfo(
-      parsedYAML.endpointsInfo,
+      parsedYAML.servicesInfo,
       convertDate,
     );
 
@@ -303,12 +310,4 @@ export default class DependencyGraphSimulator extends Simulator {
     return endpointDependencies;
 
   }
-
-
-
-
-
-
-
-
 }

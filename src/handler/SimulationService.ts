@@ -1,6 +1,7 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import DependencyGraphSimulator from "../classes/Simulator/DependencyGraphSimulator";
-import TrafficSimulator from "../classes/Simulator/TrafficSimulator";
+import Simulator from "../classes/Simulator/Simulator";
+import StaticSimConfigGenerator from "../classes/Simulator/StaticSimConfigGenerator";
 import { TGraphData } from "../entities/TGraphData";
 import ServiceOperator from "../services/ServiceOperator";
 import ImportExportHandler from "../services/ImportExportHandler";
@@ -22,17 +23,17 @@ export default class SimulationService extends IRequestHandler {
           const result = simulator.yamlToGraphData(decodedYAMLData);
 
           const isEmptyYAML = !decodedYAMLData.trim();
-          const hasNoYamlFormatError = !result.validationErrorMessage;
+          const hasNoYamlFormatError = !result.errorMessage;
 
           if (isEmptyYAML || hasNoYamlFormatError) {
             if (showEndpoint) {
-              return res.status(200).json({ graph: result.graph, message: result.validationErrorMessage });
+              return res.status(200).json({ graph: result.graph, message: result.errorMessage });
             } else { //service graph
-              return res.status(200).json({ graph: this.toServiceDependencyGraph(result.graph), message: result.validationErrorMessage });
+              return res.status(200).json({ graph: this.toServiceDependencyGraph(result.graph), message: result.errorMessage });
             }
 
           } else {
-            return res.status(400).json({ graph: result.graph, message: result.validationErrorMessage });
+            return res.status(400).json({ graph: result.graph, message: result.errorMessage });
           }
         } catch (err) {
           return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
@@ -59,7 +60,7 @@ export default class SimulationService extends IRequestHandler {
       "/retrieveDataByYAML",
       async (req, res) => {
         const { yamlData } = req.body as { yamlData: string };
-        const simulator = TrafficSimulator.getInstance();
+        const simulator = Simulator.getInstance();
         const decodedYAMLData = yamlData ? yamlData : '';
         const isEmptyYAML = !decodedYAMLData.trim();
         if (isEmptyYAML) {
@@ -106,7 +107,7 @@ export default class SimulationService extends IRequestHandler {
       "/generateStaticYaml",
       async (_, res) => {
         try {
-          const staticYamlStr = TrafficSimulator.getInstance().generateStaticYamlFromCurrentData();
+          const staticYamlStr = StaticSimConfigGenerator.getInstance().generateStaticYamlFromCurrentData();
           return res.status(200).json({
             staticYamlStr: staticYamlStr,
             message: "ok"

@@ -1,510 +1,826 @@
-import yaml from "js-yaml";
-import { TSimulationYAML, simulationYAMLSchema } from "../../entities/TSimulationYAML";
-import { CLabelMapping } from "../../classes/Cacheable/CLabelMapping";
-import DataCache from "../../services/DataCache";
 
-type BodyInputType = "sample" | "typeDefinition" | "empty" | "unknown";
+import SimConfigPreprocessor from './SimConfigPreprocessor';
+import DependencyGraphSimulator from './DependencyGraphSimulator';
+import {
+  TSimulationEndpointMetric,
+  TSimulationEndpointDatatype,
+  TSimulationNamespace,
+  TSimulationResponseBody,
+} from "../../entities/TSimulationConfig";
+import DataCache from "../../services/DataCache";
+import { TRealtimeData } from "../../entities/TRealtimeData";
+import { TReplicaCount } from "../../entities/TReplicaCount";
+import { TEndpointDependency } from "../../entities/TEndpointDependency";
+import { TRequestTypeUpper } from "../../entities/TRequestType";
+import { TEndpointDataType } from "../../entities/TEndpointDataType";
+import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
+import { EndpointDependencies } from "../EndpointDependencies";
+import { RealtimeDataList } from "../RealtimeDataList";
+
+import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
+import Utils from "../../utils/Utils";
+import Logger from "../../utils/Logger";
+
+
+
+type TBaseRealtimeData = Omit<
+  TRealtimeData,
+  'latency' | 'status' | 'responseBody' | 'responseContentType' | 'timestamp'
+>;
+
+type TBaseDataWithResponses = {
+  baseData: TBaseRealtimeData,
+  responses?: TSimulationEndpointDatatype['responses'],
+}
+
+// Represents request statistics for a specific endpoint during a particular hour
+type TEndpointTrafficStats = {
+  requestCount: number;
+  errorCount: number;
+  maxLatency: number;
+};
+
+// Request statistics for all endpoints in a specific hour 
+// (key: endpoint ID, value: statistics for that endpoint)
+type THourlyTrafficStatsMap = Map<string, TEndpointTrafficStats>;
+
+// Request statistics for 24 hours in a specific day 
+// (key: hour of the day (0–23), value: HourlyStatsMap for that hour)
+type TDailyTrafficStatsMap = Map<number, THourlyTrafficStatsMap>;
+
+// Simulation results for all dates in the simulation period of a single run 
+// (key: day index (0 ~ simulationDurationInDays -1), value: DailyStatsMap for that day)
+type TTrafficSimulationResult = Map<number, TDailyTrafficStatsMap>;
 
 export default class Simulator {
+  private static instance?: Simulator;
+  static getInstance = () => this.instance || (this.instance = new this());
+  private simConfigProcessor: SimConfigPreprocessor;
 
-  protected validateAndParseYAML(yamlString: string): {
-    validationErrorMessage: string,
-    parsedYAML: TSimulationYAML | null
+  private constructor() {
+    this.simConfigProcessor = new SimConfigPreprocessor();
+  }
+
+  yamlToSimulationData(yamlString: string): {
+    validationErrorMessage: string; // error message when validating YAML format
+    convertingErrorMessage: string; // error message when converting to realtime data
+    endpointDependencies: TEndpointDependency[];
+    dataType: TEndpointDataType[];
+    replicaCountList: TReplicaCount[];
+    realtimeCombinedDataPerHourMap: Map<string, TCombinedRealtimeData[]>
   } {
-    if (!yamlString.trim()) {
+    const { errorMessage, parsedConfig } = this.simConfigProcessor.validateAndPrerocessSimConfig(yamlString);
+
+    if (!parsedConfig) {
+      return {
+        validationErrorMessage: errorMessage,
+        convertingErrorMessage: "",
+        endpointDependencies: [],
+        dataType: [],
+        replicaCountList: [],
+        realtimeCombinedDataPerHourMap: new Map(),
+      };
+    }
+
+    const simulateDate = Date.now();// The time at the start of the simulation.
+    const dependencySimulator = DependencyGraphSimulator.getInstance();
+
+    const {
+      endpointInfoSet
+    } = dependencySimulator.extractEndpointsInfo(
+      parsedConfig.servicesInfo,
+      simulateDate
+    );
+
+    const {
+      dependOnMap,
+      dependByMap
+    } = dependencySimulator.buildDependencyMaps(parsedConfig.endpointDependencies);
+
+    const {
+      sampleRealTimeDataList,// to extract simulation data types even without traffic
+      replicaCountList,
+      baseDataMap: EndpointRealTimeBaseDatas
+    } = this.extractSampleDataAndReplicaCount(
+      parsedConfig.servicesInfo,
+      simulateDate
+    );
+
+    const endpointDependencies = dependencySimulator.createEndpointDependencies(
+      simulateDate,
+      endpointInfoSet,
+      dependOnMap,
+      dependByMap,
+    );
+
+    let realtimeCombinedDataPerHourMap: Map<string, TCombinedRealtimeData[]> = new Map();
+
+    if (parsedConfig.loadSimulation && parsedConfig.loadSimulation.endpointMetrics.length > 0) {
+      const endpointMetrics = parsedConfig.loadSimulation.endpointMetrics;
+      const simulationDurationInDays = parsedConfig.loadSimulation.config?.simulationDurationInDays ?? 1;
+      const {
+        hourlyRequestCountsForEachDayMap,
+        latencyMap,
+        errorRateMap: basicErrorRateMap
+      } = this.getTrafficMap(endpointMetrics, simulationDurationInDays);
+
+      // Use the basic error rate to simulate traffic propagation and calculate the 
+      // expected incoming traffic for each service under normal (non-overloaded) conditions
+      const trafficPropagationWithBasicErrorResults = this.aggregateSimulateTrafficStats(
+        dependOnMap,
+        hourlyRequestCountsForEachDayMap,
+        latencyMap,
+        basicErrorRateMap,
+      );
+
+      // Estimate overload level for each service based on expected incoming traffic, the number of replicas, and per-replica throughput capacity  
+      // Then combine with base error rate to calculate the adjusted error rate per endpoint, per hour  
+      // (TODO) Per-replica throughput is currently fixed — consider allowing user configuration in the future
+      const serviceRequestCountsPerHour = this.aggregateServiceRequestCountPerHour(trafficPropagationWithBasicErrorResults);
+      const generateAdjustedErrorRatePerHourResult = this.generateAdjustedEndpointErrorRatePerHour(
+        serviceRequestCountsPerHour,
+        basicErrorRateMap, replicaCountList
+      )
+
+      // Re-run traffic propagation with adjusted error rates  
+      // to obtain actual traffic distribution considering both "base errors" and "overload-induced errors"
+      const trafficPropagationWithOverloadErrorResults = this.aggregateSimulateTrafficStats2(
+        dependOnMap,
+        hourlyRequestCountsForEachDayMap,
+        latencyMap,
+        generateAdjustedErrorRatePerHourResult,
+      );
+
+      realtimeCombinedDataPerHourMap = this.generateRealtimeDataFromSimulationResults(
+        EndpointRealTimeBaseDatas,
+        trafficPropagationWithOverloadErrorResults,
+        simulateDate
+      );
+    }
+
+
+    try {
       return {
         validationErrorMessage: "",
-        parsedYAML: null,
+        convertingErrorMessage: "",
+        ...this.convertRawToSimulationData(
+          sampleRealTimeDataList,
+          endpointDependencies
+        ),
+        replicaCountList,
+        realtimeCombinedDataPerHourMap: realtimeCombinedDataPerHourMap
       };
-    }
-    try {
-      const parsedYAML = yaml.load(yamlString) as TSimulationYAML;
-
-      const validationResult = simulationYAMLSchema.safeParse(parsedYAML);
-      if (validationResult.success) {
-        const preprocessErrors = this.preprocessParsedYaml(parsedYAML);
-        if (preprocessErrors.length > 0) {
-          
-          return {
-            validationErrorMessage: "Preprocessing errors:\n" + preprocessErrors.map(e => `• ${e}`).join("\n"),
-            parsedYAML: null,
-          };
-        }
-        return {
-          validationErrorMessage: "",
-          parsedYAML: parsedYAML
-        };
-      } else {
-
-        const formatErrorMessage = validationResult.error.errors
-          .map((err) => `• ${err.path.join(".")}: ${err.message}`)
-          .join("\n");
-                 
-        return {
-          validationErrorMessage: "YAML format error:\n" + formatErrorMessage,
-          parsedYAML: null
-        };
-      }
-    } catch (e) {
-
+    } catch (err) {
+      const errMsg = `${err instanceof Error ? err.message : err}`;
+      Logger.error("Failed to convert simulationRawData to simulation data, skipping.");
+      Logger.verbose("-detail: ", errMsg);
       return {
-        validationErrorMessage: `An error occurred while parsing YAML \n\n${e instanceof Error ? e.message : e}`,
-        parsedYAML: null,
+        validationErrorMessage: "",
+        convertingErrorMessage: `Failed to convert simulationRawData to simulation data:\n ${errMsg}`,
+        endpointDependencies: [],
+        dataType: [],
+        replicaCountList: [],
+        realtimeCombinedDataPerHourMap: new Map(),
       };
     }
   }
 
-  private preprocessParsedYaml(parsedYAML: TSimulationYAML): string[] {
-    // Preprocess and validate parsed YAML data:
-    // 1. Normalize data types (convert versions and endpointIds to strings)
-    // 2. Validate endpoint IDs for duplicates, existence, and self-dependency
-    // 3. Parse and sanitize JSON requestBody and responseBody in datatype
-    // 4. Collect and return any validation error messages
+  private convertRawToSimulationData(
+    sampleRealTimeDataList: TRealtimeData[],
+    endpointDependencies: TEndpointDependency[],
+  ) {
+    const sampleCbdata = new RealtimeDataList(sampleRealTimeDataList).toCombinedRealtimeData();
+    const dataType = sampleCbdata.extractEndpointDataType();
+    const existingDep = DataCache.getInstance()
+      .get<CEndpointDependencies>("EndpointDependencies")
+      .getData()?.toJSON();
+    const newDep = new EndpointDependencies(endpointDependencies);
+    const dep = existingDep
+      ? new EndpointDependencies(existingDep).combineWith(newDep)
+      : newDep;
 
-    const errorMessages: string[] = [];
-
-    // Assign and validate unique serviceId for each service version ===
-    const existingServiceIds = new Set<string>();
-    parsedYAML.endpointsInfo.forEach(namespace => {
-      namespace.services.forEach(service => {
-        service.versions.forEach(version => {
-          // Generate a unique serviceId
-          version.version = String(version.version).trim();// Ensure version is a string
-          const serviceId = this.generateUniqueServiceName(namespace.namespace, service.serviceName, version.version);
-
-          // Check for duplicates
-          if (existingServiceIds.has(serviceId)) {
-            errorMessages.push(
-              `Error: Duplicate serviceId "${serviceId}" found in service "${service.serviceName}", version "${version.version}".`
-            );
-          } else {
-            existingServiceIds.add(serviceId);
-            version.serviceId = serviceId;
-          }
-        });
-      });
-    });
-
-    // If duplicate serviceId errors, return immediately
-    if (errorMessages.length > 0) {
-      return errorMessages;
+    return {
+      endpointDependencies: dep.toJSON(),
+      dataType: dataType.map((d) => d.toJSON()),
     }
+  }
 
-    // Collect all endpointIds defined in endpointsInfo and check for duplicates
-    const allDefinedEndpointIds = new Set<string>();
+  private extractSampleDataAndReplicaCount(
+    servicesInfo: TSimulationNamespace[],
+    simulateDate: number,
+  ): {
+    sampleRealTimeDataList: TRealtimeData[];
+    replicaCountList: TReplicaCount[];
+    baseDataMap: Map<string, TBaseDataWithResponses>;
+  } {
+    const sampleRealTimeDataList: TRealtimeData[] = [];
+    const replicaCountList: TReplicaCount[] = [];
+    const baseDataMap = new Map<string, TBaseDataWithResponses>();
+    const processedUniqueServiceNameSet = new Set<string>();
 
-    // Process endpointsInfo: convert fields and check for duplicate endpointIds
-    parsedYAML.endpointsInfo.forEach(namespace => {
-      namespace.services.forEach(service => {
-        service.versions.forEach(version => {
-          version.endpoints.forEach(endpoint => {
-            endpoint.endpointId = String(endpoint.endpointId).trim();// Ensure endpointId is a string
-            const id = endpoint.endpointId;
-            if (allDefinedEndpointIds.has(id)) {
-              errorMessages.push(`Duplicate endpointId found in endpointsInfo: ${id}, please rename it.`);
-            } else {
-              allDefinedEndpointIds.add(id);
-            }
+
+    for (const ns of servicesInfo) {
+      for (const svc of ns.services) {
+        for (const ver of svc.versions) {
+          const uniqueServiceName = ver.serviceId!;
+
+          // to avoid duplicate processing of the same service
+          if (processedUniqueServiceNameSet.has(uniqueServiceName)) continue;
+          processedUniqueServiceNameSet.add(uniqueServiceName);
+
+          // create replicaCount
+          replicaCountList.push({
+            uniqueServiceName,
+            service: svc.serviceName,
+            namespace: ns.namespace,
+            version: ver.version,
+            replicas: ver.replica ?? 1,
           });
-        });
-      });
-    });
 
-    if (errorMessages.length > 0) {
-      // Return immediately if duplicates found
-      return errorMessages;
-    }
+          for (const ep of ver.endpoints) {
+            const { method } = ep.endpointInfo;
+            const methodUpperCase = method.toUpperCase() as TRequestTypeUpper;
 
-    // Validate endpointDependencies:
-    // - Convert endpointIds to strings
-    // - Check that source endpointId exists in endpointsInfo
-    // - Check that each target endpointId in dependOn exists in endpointsInfo
-    // - Ensure no endpoint depends on itself
-    // - Check for duplicate source endpointIds within endpointDependencies
-    parsedYAML.endpointDependencies?.forEach((dep, index) => {
-      dep.endpointId = String(dep.endpointId).trim();
-      if (!allDefinedEndpointIds.has(dep.endpointId)) {
-        errorMessages.push(
-          `Error in endpointDependencies[${index}]: source endpointId "${dep.endpointId}" is not defined in endpointsInfo`
-        );
-      }
-
-      dep.dependOn.forEach((d, subIndex) => {
-        d.endpointId = String(d.endpointId).trim();
-        if (!allDefinedEndpointIds.has(d.endpointId)) {
-          errorMessages.push(
-            `Error in endpointDependencies[${index}].dependOn[${subIndex}]: target endpointId "${d.endpointId}" is not defined in endpointsInfo`
-          );
-        }
-        if (d.endpointId === dep.endpointId) {
-          errorMessages.push(
-            `Error in endpointDependencies[${index}].dependOn[${subIndex}]: endpoint cannot depend on itself ("${dep.endpointId}")`
-          );
-        }
-      });
-    });
-    const encounteredSourceEndpointIds = new Set<string>();
-    parsedYAML.endpointDependencies?.forEach((dep, index) => {
-      const sourceId = String(dep.endpointId).trim();
-      if (encounteredSourceEndpointIds.has(sourceId)) {
-        errorMessages.push(
-          `Error: Duplicate source endpointId "${sourceId}" found in endpointDependencies at index ${index}.`
-        );
-      } else {
-        encounteredSourceEndpointIds.add(sourceId);
-      }
-    });
-
-    if (errorMessages.length > 0) {
-      // Return immediately if duplicates found
-      return errorMessages;
-    }
-
-    // Validate that each endpointId in trafficSimulation.endpointMetrics exists in endpointsInfo
-    parsedYAML.trafficSimulation?.endpointMetrics.forEach((m, index) => {
-      const mId = String(m.endpointId).trim();
-      if (!allDefinedEndpointIds.has(mId)) {
-        errorMessages.push(
-          `Error in trafficSimulation.endpointMetrics[${index}]: endpointId "${mId}" is not defined in endpointsInfo`
-        );
-      }
-    });
-
-    if (errorMessages.length > 0) {
-      return errorMessages;
-    }
-
-    // Convert all endpointIds in the YAML to uniqueEndpointNames 
-    const originalToUniqueEndpointIdMap = new Map<string, string>();
-    parsedYAML.endpointsInfo.forEach((namespace) => {
-      namespace.services.forEach((service) => {
-        service.versions.forEach((version) => {
-          const uniqueServiceName = version.serviceId!;
-          version.endpoints.forEach((endpoint) => {
-            const originalEndpointId = endpoint.endpointId;
-            const method = endpoint.endpointInfo.method.toUpperCase();
-            const path = endpoint.endpointInfo.path;
-            const newEndpointId = this.generateUniqueEndpointName(
+            const baseData: TBaseRealtimeData = {
               uniqueServiceName,
-              service.serviceName,
-              namespace.namespace,
-              method,
-              path
-            );
-            endpoint.endpointId = newEndpointId;
-            originalToUniqueEndpointIdMap.set(originalEndpointId, newEndpointId);
-          });
-        });
-      });
-    });
-    parsedYAML.endpointDependencies?.forEach((dep, index) => {
-      const originalSourceId = dep.endpointId;
-      const mappedSourceId = originalToUniqueEndpointIdMap.get(originalSourceId);
-      if (mappedSourceId) {
-        dep.endpointId = mappedSourceId;
-      } else {
-        errorMessages.push(
-          `Error: Cannot map source endpointId "${originalSourceId}" in endpointDependencies[${index}].`
-        );
-      }
-      dep.dependOn.forEach((d, subIndex) => {
-        const originalTargetId = d.endpointId;
-        const mappedTargetId = originalToUniqueEndpointIdMap.get(originalTargetId);
-        if (mappedTargetId) {
-          d.endpointId = mappedTargetId;
-        } else {
-          errorMessages.push(
-            `Error: Cannot map target endpointId "${originalTargetId}" in endpointDependencies[${index}].dependOn[${subIndex}].`
-          );
-        }
-      });
-    });
-    parsedYAML.trafficSimulation?.endpointMetrics.forEach((metric, index) => {
-      const originalId = metric.endpointId;
-      const mappedId = originalToUniqueEndpointIdMap.get(originalId);
-      if (mappedId) {
-        metric.endpointId = mappedId;
-      } else {
-        errorMessages.push(
-          `Error: Cannot map endpointId "${originalId}" in trafficSimulation.endpointMetrics[${index}].`
-        );
-      }
-    });
+              uniqueEndpointName: ep.endpointId,
+              method: methodUpperCase,
+              service: svc.serviceName,
+              namespace: ns.namespace,
+              version: ver.version,
+              requestBody: ep.datatype?.requestBody,
+              requestContentType: ep.datatype?.requestContentType,
+              replica: ver.replica ?? 1,
+            };
 
-    // Attempt to parse requestBody and responseBody
-    parsedYAML.endpointsInfo.forEach((namespace, nsIndex) => {
-      namespace.services.forEach((service, svcIndex) => {
-        service.versions.forEach((version, verIndex) => {
-          version.endpoints.forEach((endpoint, epIndex) => {
-            if (endpoint.datatype) {
-              if (endpoint.datatype.requestContentType === "application/json") {
-                const result = this.preprocessJsonBody(endpoint.datatype.requestBody);
-                if (!result.isSuccess) {
-                  errorMessages.push(
-                    `Error in endpointsInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}]: Invalid requestBody in endpoint "${endpoint.endpointId}": ${result.warningMessage}`
-                  );
-                } else {
-                  endpoint.datatype.requestBody = result.processedBodyString;
-                }
-              }
-              endpoint.datatype.responses.forEach((response, respIndex) => {
-                if (response.responseContentType === "application/json") {
-                  const result = this.preprocessJsonBody(response.responseBody);
-                  if (!result.isSuccess) {
-                    errorMessages.push(
-                      `Error in endpointsInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}].responses[${respIndex}]: Invalid responseBody (status: ${response.status}) in endpoint "${endpoint.endpointId}": ${result.warningMessage}`
-                    );
-                  } else {
-                    response.responseBody = result.processedBodyString;
-                  }
-                }
+            baseDataMap.set(ep.endpointId, { baseData, responses: ep.datatype?.responses });
+
+            // collect endpoint sample data (fake realtime data)
+            const endpointSampleData = this.collectEndpointSampleData(
+              simulateDate,
+              baseData,
+              ep.datatype?.responses
+            );
+            sampleRealTimeDataList.push(...endpointSampleData);
+          }
+        }
+      }
+    }
+
+    return { sampleRealTimeDataList, replicaCountList, baseDataMap };
+  }
+
+  private collectEndpointSampleData(
+    simulateDate: number,
+    baseData: TBaseRealtimeData,
+    responses?: TSimulationResponseBody[],
+  ): TRealtimeData[] {
+    // Create a response map based on datatype
+    const respMap = new Map<string, { body: string; contentType: string }>();
+    responses?.forEach(r => {
+      respMap.set(String(r.status), {
+        body: r.responseBody,
+        contentType: r.responseContentType
+      });
+    });
+    const sampleStatuses = [...respMap.keys()];
+
+    const endpointSampleData: TRealtimeData[] = sampleStatuses.map(status => ({
+      ...baseData,
+      latency: 0,
+      timestamp: simulateDate * 1000, // microseconds
+      status,
+      responseBody: respMap.get(status)?.body,
+      responseContentType: respMap.get(status)?.contentType,
+    }))
+
+    return endpointSampleData;
+  }
+
+  private getTrafficMap(
+    endpointMetrics: TSimulationEndpointMetric[],
+    simulationDurationInDays: number,
+  ): {
+    hourlyRequestCountsForEachDayMap: Map<string, number[][]>; // key: endpointId, value: array of [days][24 hours]
+    latencyMap: Map<string, number>;      // latency >= 0 key:endpointId value: latencyMs
+    errorRateMap: Map<string, number>;    // errorRate in [0,1] key:endpointId value: errorRatePercentage / 100
+  } {
+    const hourlyRequestCountsForEachDayMap = new Map<string, number[][]>();
+    const latencyMap = new Map<string, number>();
+    const errorRateMap = new Map<string, number>();
+
+    if (!endpointMetrics) {
+      return { hourlyRequestCountsForEachDayMap, latencyMap, errorRateMap };
+    }
+
+    const SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
+    const PROBABILITY_OF_MUTATION = 0.3;
+
+
+    for (const metric of endpointMetrics) {
+      const endpointId = metric.endpointId;
+
+      // latencyMap
+      const latencyMs = metric.latencyMs ?? 0;
+      latencyMap.set(endpointId, latencyMs);
+
+      // errorRateMap
+      const errorRate = (metric.errorRatePercentage ?? 0) / 100;
+      errorRateMap.set(endpointId, errorRate);
+
+      // hourlyRequestCountsForEachDayMap
+      const baseDailyRequestCount = metric.expectedExternalDailyRequestCount ?? 0;
+      if (baseDailyRequestCount === 0) continue;
+      // Hourly request counts for each day (e.g., for the 3rd day, the count from 11:00 to 12:00 is dailyRequestCounts[2][11])
+      const dailyRequestCounts: number[][] = [];
+
+      for (let day = 0; day < simulationDurationInDays; day++) {
+        const isMutated = Math.random() < PROBABILITY_OF_MUTATION;
+        const mutationScaleRate = isMutated
+          ? SCALE_FACTORS[Math.floor(Math.random() * SCALE_FACTORS.length)]
+          : 1;
+
+        const realRequestCountForThisday = Math.round(
+          baseDailyRequestCount * mutationScaleRate
+        );
+
+        dailyRequestCounts.push(
+          this.distributeDailyRequestToEachHours(realRequestCountForThisday)
+        );
+      }
+
+      hourlyRequestCountsForEachDayMap.set(endpointId, dailyRequestCounts);
+    }
+
+    return { hourlyRequestCountsForEachDayMap, latencyMap, errorRateMap };
+  }
+
+  // Randomly distribute the total daily request count across each hour of the day
+  private distributeDailyRequestToEachHours(realRequestCountForThisday: number): number[] {
+    if (realRequestCountForThisday === 0) {
+      return new Array(24).fill(0);;
+    }
+
+    // Generate random request count weights for 24 hours
+    const weights = Array.from({ length: 24 }, () => Math.random());
+    const totalWeight = weights.reduce((sum, w) => sum + w, 0);
+    const normalizeWeights = weights.map(w => w / totalWeight);
+    const hourlyRequestCountsForThisDay: number[] =
+      normalizeWeights.map(w => Math.round(w * realRequestCountForThisday));
+
+    // Fix rounding error
+    let diff = realRequestCountForThisday
+      - hourlyRequestCountsForThisDay.reduce((a, b) => a + b, 0);
+    if (diff !== 0) {// fix rounding error
+      const indices = Array.from({ length: 24 }, (_, i) => i);
+      indices.sort((a, b) => normalizeWeights[b] - normalizeWeights[a]);
+      let i = 0;
+      while (diff !== 0) {
+        const index = indices[i % 24];
+
+        if (diff > 0) {
+          hourlyRequestCountsForThisDay[index]++;
+          diff--;
+        } else if (diff < 0) {
+          const allZero = hourlyRequestCountsForThisDay.every(count => count === 0);
+          if (allZero) {
+            break;
+          }
+          if (hourlyRequestCountsForThisDay[index] > 0) {
+            hourlyRequestCountsForThisDay[index]--;
+            diff++;
+          }
+        }
+        i++;
+      }
+    }
+    return hourlyRequestCountsForThisDay;
+  }
+
+
+  private aggregateSimulateTrafficStats(
+    dependOnMap: Map<string, Set<string>>,
+    hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
+    latencyMap: Map<string, number>,
+    errorRateMap: Map<string, number>
+  ): TTrafficSimulationResult {
+
+    const results: TTrafficSimulationResult = new Map();
+
+    console.log(hourlyRequestCountsForEachDayMap)
+    for (const [entryPointId, dailyHourlyCounts] of hourlyRequestCountsForEachDayMap.entries()) {
+      for (let day = 0; day < dailyHourlyCounts.length; day++) {
+        const hourlyCounts = dailyHourlyCounts[day];
+        for (let hour = 0; hour < 24; hour++) {
+          const count = hourlyCounts[hour];
+          if (count <= 0) continue;
+
+          const { stats } = this.simulateTrafficPropagationFromSingleEntry(
+            entryPointId,
+            count,
+            dependOnMap,
+            latencyMap,
+            errorRateMap
+          );
+          console.log("errorRateMap", errorRateMap)
+
+          if (!results.has(day)) {
+            results.set(day, new Map());
+          }
+          const dailyStats: TDailyTrafficStatsMap = results.get(day)!;
+          if (!dailyStats.has(hour)) {
+            dailyStats.set(hour, new Map());
+          }
+          const hourlyStats: THourlyTrafficStatsMap = dailyStats.get(hour)!;
+
+
+          for (const [targetEndpointId, stat] of stats.entries()) {
+            if (!hourlyStats.has(targetEndpointId)) {
+              hourlyStats.set(targetEndpointId, {
+                requestCount: 0,
+                errorCount: 0,
+                maxLatency: 0
               });
             }
-          });
-        });
-      });
-    });
-    return errorMessages;
-  }
-
-
-  private preprocessJsonBody(bodyString: string): {
-    isSuccess: boolean,
-    processedBodyString: string,
-    warningMessage: string
-  } {
-    const inputType: BodyInputType = this.classifyBodyInputType(bodyString);
-    // case 1: user provides a sample, de-identify it.
-    // case 2: user provides a type definition, convert it to JSON first.
-    // if it preprocess fails, user will be asked to re-input it.
-    try {
-      let parsedBody: any;
-
-      if (inputType === "sample") {
-        parsedBody = JSON.parse(bodyString);
-      } else if (inputType === "typeDefinition") {
-        const jsonStr = this.convertUserDefinedTypeToJson(bodyString);
-        parsedBody = JSON.parse(jsonStr);
-      } else if (inputType === "empty") {
-        parsedBody = {};
-      } else {
-        return { // unknown input, will call user to re-input
-          isSuccess: false,
-          processedBodyString: '',
-          warningMessage: "Unrecognized format. Please provide a valid JSON sample or a type definition using only primitive types like string, number, or boolean (e.g., { name: string, age: number })."
-        };
-      }
-      const processedBody = inputType === "sample" ?
-        this.deIdentifyJsonSample(parsedBody) :
-        this.deIdentifyJsonTypeDefinition(parsedBody);
-      return {
-        isSuccess: true,
-        processedBodyString: JSON.stringify(processedBody),
-        warningMessage: ""
-      };
-
-    } catch (e) {
-      return {
-        isSuccess: false,
-        processedBodyString: '',
-        warningMessage: `Failed to process input. Make sure it is valid JSON or a type definition using only primitive types like string, number, or boolean (e.g., { name: string, age: number }). err: ${e instanceof Error ? e.message : e}`,
-      };
-    }
-  }
-  private classifyBodyInputType(input: string): BodyInputType {
-    if (this.isJsonSample(input)) return "sample";
-    if (this.isTypeDefinition(input)) return "typeDefinition";
-    if (input.trim() === '') return "empty";
-    return "unknown";
-  }
-  private isJsonSample(input: string): boolean {
-    try {
-      const parsed = JSON.parse(input);
-      return typeof parsed === 'object' && parsed !== null;
-    } catch (e) {
-      return false;
-    }
-  }
-  private isTypeDefinition(input: string): boolean {
-    const trimmed = input.trim();
-    return !this.isJsonSample(input) && /:\s*(string|number|boolean|null|any|\{|\[)/i.test(trimmed);
-  }
-  //Convert TypeScript-like type definitions (interface-style structures) into JSON format string.
-  private convertUserDefinedTypeToJson(input: string): string {
-    // Remove extra whitespace for easier processing
-    input = input.replace(/\s+/g, ' ').trim();
-
-    // Parse the full object if wrapped in braces
-    if (input.startsWith('{') && input.endsWith('}')) {
-      // Remove outermost curly braces
-      input = input.substring(1, input.length - 1).trim();
-
-      // Parse properties and build JSON string
-      const result = this.parseProperties(input);
-      return `{${result}}`;
-    }
-
-    return input;
-  }
-  //(for convert User Defined Type To Json)Parse object properties
-  private parseProperties(input: string): string {
-    const properties: string[] = [];
-    let currentProperty = '';
-    let depth = 0;
-
-    // Analyze character by character to properly handle nesting
-    for (let i = 0; i < input.length; i++) {
-      const char = input[i];
-
-      if (char === '{' || char === '[') depth++;
-      else if (char === '}' || char === ']') depth--;
-
-      if (char === ',' && depth === 0) {
-        // Found a property delimiter
-        if (currentProperty.trim()) {
-          properties.push(this.parseProperty(currentProperty.trim()));
+            const existingStats = hourlyStats.get(targetEndpointId)!;
+            existingStats.requestCount += stat.requestCount;
+            existingStats.errorCount += stat.errorCount;
+            existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
+            console.log(hourlyStats.get(targetEndpointId))
+          }
         }
-        currentProperty = '';
-      } else {
-        currentProperty += char;
+      }
+    }
+    return results;
+  }
+  private aggregateSimulateTrafficStats2(
+    dependOnMap: Map<string, Set<string>>,
+    hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
+    latencyMap: Map<string, number>,
+    adjustedErrorRatePerHour: Map<string, Map<string, number>>
+  ): TTrafficSimulationResult {
+
+    const results: TTrafficSimulationResult = new Map();
+
+    for (const [entryPointId, dailyHourlyCounts] of hourlyRequestCountsForEachDayMap.entries()) {
+      for (let day = 0; day < dailyHourlyCounts.length; day++) {
+        const hourlyCounts = dailyHourlyCounts[day];
+        for (let hour = 0; hour < 24; hour++) {
+          const count = hourlyCounts[hour];
+          if (count <= 0) continue;
+
+          const dayHour = `${day}-${hour}`;
+
+          // Get the adjusted error rate of all endpoints in a specific hour
+          const errorRateMapForHour = adjustedErrorRatePerHour.get(dayHour) || new Map();
+
+          const { stats } = this.simulateTrafficPropagationFromSingleEntry(
+            entryPointId,
+            count,
+            dependOnMap,
+            latencyMap,
+            errorRateMapForHour
+          );
+          console.log("errorRateMapForHour ", errorRateMapForHour)
+
+          if (!results.has(day)) {
+            results.set(day, new Map());
+          }
+          const dailyStats: TDailyTrafficStatsMap = results.get(day)!;
+          if (!dailyStats.has(hour)) {
+            dailyStats.set(hour, new Map());
+          }
+          const hourlyStats: THourlyTrafficStatsMap = dailyStats.get(hour)!;
+
+
+          for (const [targetEndpointId, stat] of stats.entries()) {
+            if (!hourlyStats.has(targetEndpointId)) {
+              hourlyStats.set(targetEndpointId, {
+                requestCount: 0,
+                errorCount: 0,
+                maxLatency: 0
+              });
+            }
+            const existingStats = hourlyStats.get(targetEndpointId)!;
+            existingStats.requestCount += stat.requestCount;
+            existingStats.errorCount += stat.errorCount;
+            existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
+            console.log(hourlyStats.get(targetEndpointId))
+          }
+        }
+      }
+    }
+    return results;
+  }
+
+  private simulateTrafficPropagationFromSingleEntry(
+    entryPointId: string,
+    initialRequestCount: number,
+    dependencyGraph: Map<string, Set<string>>,
+    latencyMap: Map<string, number>,
+    errorRateMap: Map<string, number>,
+  ): {
+    entryPointId: string;
+    stats: Map<string, { requestCount: number; errorCount: number; maxLatency: number }>;
+  } {
+    // If there are no initial requests, return empty stats
+    if (initialRequestCount <= 0) {
+      return { entryPointId, stats: new Map() };
+    }
+
+    // Store aggregated statistics per endpoint
+    const stats = new Map<string, { requestCount: number; errorCount: number; maxLatency: number }>();
+    // Track visited endpoints to avoid cycles
+    const visited = new Set<string>();
+
+    // Depth-first search to propagate traffic and compute metrics
+    function dfs(endpointId: string, propagatedRequests: number): number {
+      // If already visited or no requests to propagate, return zero latency
+      if (visited.has(endpointId) || propagatedRequests <= 0) return 0;
+      visited.add(endpointId);
+
+      const errorRate = errorRateMap.get(endpointId) ?? 0;
+      const latency = latencyMap.get(endpointId) ?? 0;
+
+      // Simulate error count based on error rate
+      let errorCount = 0;
+      if (errorRate === 1) errorCount = propagatedRequests;
+      else if (errorRate > 0) {
+        for (let i = 0; i < propagatedRequests; i++) {
+          if (Math.random() < errorRate) errorCount++;
+        }
+      }
+
+      // Calculate successful requests after errors
+      const successfulRequests = propagatedRequests - errorCount;
+
+      // Recursively propagate to dependent child endpoints
+      const children = dependencyGraph.get(endpointId);
+      let maxChildLatency = 0;
+      if (children) {
+        for (const childId of children) {
+          const childLatency = dfs(childId, successfulRequests);
+          if (childLatency > maxChildLatency) maxChildLatency = childLatency;
+        }
+      }
+
+      // Total latency includes current endpoint's latency and max downstream latency
+      const totalLatency = latency + maxChildLatency;
+
+      // Update stats for this endpoint with accumulated values
+      const currentStats = stats.get(endpointId) ?? { requestCount: 0, errorCount: 0, maxLatency: 0 };
+      stats.set(endpointId, {
+        requestCount: currentStats.requestCount + propagatedRequests,
+        errorCount: currentStats.errorCount + errorCount,
+        maxLatency: Math.max(currentStats.maxLatency, totalLatency),
+      });
+
+      // Remove endpoint from visited set before backtracking
+      visited.delete(endpointId);
+      return totalLatency;
+    }
+
+    // Start DFS traversal from the entry point
+    dfs(entryPointId, initialRequestCount);
+
+    return { entryPointId, stats };
+  }
+
+  private aggregateServiceRequestCountPerHour(
+    trafficPropagationResults: TTrafficSimulationResult
+  ): Map<string, Map<string, number>> {
+    const serviceRequestCountsPerHour = new Map<string, Map<string, number>>();
+
+    for (const [day, dailyStats] of trafficPropagationResults.entries()) {
+      for (const [hour, hourlyStats] of dailyStats.entries()) {
+        const key = `${day}-${hour}`;
+        if (!serviceRequestCountsPerHour.has(key)) {
+          serviceRequestCountsPerHour.set(key, new Map());
+        }
+        const serviceMap = serviceRequestCountsPerHour.get(key)!;
+
+        for (const [endpointId, stats] of hourlyStats.entries()) {
+          const serviceId = this.extractServiceIdFromEndpointId(endpointId);
+          const prevCount = serviceMap.get(serviceId) || 0;
+          serviceMap.set(serviceId, prevCount + stats.requestCount);
+        }
       }
     }
 
-    /// Handle the last property
-    if (currentProperty.trim()) {
-      properties.push(this.parseProperty(currentProperty.trim()));
+    return serviceRequestCountsPerHour;
+  }
+  private estimateErrorRateWithServiceOverload(
+    requestCountPerSecond: number,
+    replicaCount: number,
+    replicaMaxQPS: number,
+    baseErrorRate: number,
+  ): number {
+    const capacity = replicaCount * replicaMaxQPS; // Total system processing capacity (requests per second)
+
+    const utilization = requestCountPerSecond / capacity; // System utilization (load ratio)
+    // console.log("----------")
+    //   console.log("requestCountPerSecond", requestCountPerSecond)
+    // console.log(` replicas: ${replicaCount}`)
+    //  console.log(` capacity: ${capacity}`)
+    console.log(` utilization: ${utilization}`)
+    if (utilization <= 1) {
+      // When the system is not overloaded, the error rate remains at the baseline error rate.
+      return baseErrorRate;
     }
 
-    return properties.join(', ');
+    const overloadFactor = utilization - 1; // Overload ratio (the portion where utilization exceeds 1)
+
+    // Additional error rate caused by overload, calculated using an exponential model.
+    // The coefficient 3 in the exponential function controls how quickly the error rate increases.
+    // (TODO)This is a temporary value; a more realistic model will be tested and applied in the future.
+    const serviceOverloadErrorRate = 1 - Math.exp(-3 * overloadFactor);
+
+    // Total error rate = base error rate + remaining available error rate * overload-induced error rate
+    // (Overload-induced errors only affect requests that were originally successful, hence (1 - baseErrorRate) is used)
+    const totalErrorRate = baseErrorRate + (1 - baseErrorRate) * serviceOverloadErrorRate;
+
+    return Math.min(1, totalErrorRate);
   }
-  //(for convert User Defined Type To Json)Parse a single property
-  private parseProperty(input: string): string {
-    // Split property name and type
-    const colonIndex = input.indexOf(':');
-    if (colonIndex === -1) return input;
 
-    const propertyName = input.substring(0, colonIndex).trim();
-    const propertyType = input.substring(colonIndex + 1).trim();
+  private generateAdjustedEndpointErrorRatePerHour(
+    serviceRequestCountsPerHour: Map<string, Map<string, number>>,
+    basicErrorRateMap: Map<string, number>,
+    replicaCountList: TReplicaCount[],
+    replicaMaxQPS: number = 1 // Maximum throughput per second for a single service replica. If the requests per second exceed this value, the service is considered overloaded.
+  ): Map<string, Map<string, number>> {
 
-    return `"${propertyName}": ${this.parseType(propertyType)}`;
-  }
-  //(for convert User Defined Type To Json)Parse type definition
-  private parseType(type: string): string {
-    // Extract array notations and base type
-    let arrayNotations = '';
-    let baseType = type;
-
-    while (baseType.endsWith('[]')) {
-      arrayNotations = '[]' + arrayNotations;
-      baseType = baseType.substring(0, baseType.length - 2);
+    // serviceId => replica count
+    const replicaCountMap = new Map<string, number>();
+    for (const replicaInfo of replicaCountList) {
+      replicaCountMap.set(replicaInfo.uniqueServiceName, replicaInfo.replicas);
     }
 
-    // If baseType is 'any' and has array notations, build nested empty arrays
-    if (baseType === 'any' && arrayNotations) {
-      let emptyArray = '[]';
-      const depth = arrayNotations.length / 2;  // number of []
-      for (let i = 1; i < depth; i++) {
-        emptyArray = `[${emptyArray}]`;
+    // endpointId => serviceId
+    const endpointToServiceMap = new Map<string, string>();
+    for (const endpointId of basicErrorRateMap.keys()) {
+      const serviceId = endpointId.split('\t').slice(0, 3).join('\t');
+      endpointToServiceMap.set(endpointId, serviceId);
+    }
+
+    // Final result: Map<dayHour, Map<endpointId, adjustedErrorRate>>
+    const adjustedErrorRatePerHour = new Map<string, Map<string, number>>();
+
+    for (const [dayHour, serviceCounts] of serviceRequestCountsPerHour.entries()) {
+      const adjustedMap = new Map<string, number>();
+
+      for (const [endpointId, baseErrorRate] of basicErrorRateMap.entries()) {
+        const serviceId = endpointToServiceMap.get(endpointId)!;
+
+        // Get request count for the service in this hour
+        const requestCountPerHour = serviceCounts.get(serviceId) ?? 0;
+        const requestCountPerSecond = requestCountPerHour / 3600;
+
+        const replicaCount = replicaCountMap.get(serviceId) ?? 1;
+
+        const adjustedErrorRate = this.estimateErrorRateWithServiceOverload(
+          requestCountPerSecond,
+          replicaCount,
+          replicaMaxQPS,
+          baseErrorRate
+        );
+
+        adjustedMap.set(endpointId, adjustedErrorRate);
       }
-      return emptyArray;
+
+      adjustedErrorRatePerHour.set(dayHour, adjustedMap);
     }
 
-    // Handle object type (nested) ...
-    if (baseType.startsWith('{') && baseType.endsWith('}')) {
-      let result = this.convertUserDefinedTypeToJson(baseType);
-      for (let i = 0; i < arrayNotations.length / 2; i++) {
-        result = `[${result}]`;
+    return adjustedErrorRatePerHour;
+  }
+
+  private extractServiceIdFromEndpointId(endpointId: string): string {
+    const parts = endpointId.split('\t');
+    return parts.slice(0, 3).join('\t');
+  }
+
+  private generateRealtimeDataFromSimulationResults(
+    baseDataMap: Map<string, TBaseDataWithResponses>,
+    trafficPropagationResults: TTrafficSimulationResult,
+    simulateDate: number
+  ): Map<string, TCombinedRealtimeData[]> {
+    const realtimeDataPerHour = new Map<string, TCombinedRealtimeData[]>(); // key: "day-hour"
+
+    for (const [day, dailyStats] of trafficPropagationResults.entries()) {
+      for (const [hour, hourlyStats] of dailyStats.entries()) {
+        const combinedList: TCombinedRealtimeData[] = [];
+
+        for (const [endpointId, stats] of hourlyStats.entries()) {
+          const baseDataWithResp = baseDataMap.get(endpointId);
+          if (!baseDataWithResp) continue;
+
+          const { baseData, responses } = baseDataWithResp;
+          const timestampMicro = (simulateDate + day * 86400_000 + hour * 3600_000) * 1000;
+
+
+          const successCount = stats.requestCount - stats.errorCount;
+          const errorCount = stats.errorCount;
+
+          if (successCount > 0) {
+            const resp2xx = responses?.find(r => String(r.status).startsWith("2"));
+            combinedList.push({
+              uniqueServiceName: baseData.uniqueServiceName,
+              uniqueEndpointName: baseData.uniqueEndpointName,
+              latestTimestamp: timestampMicro,
+              method: baseData.method,
+              service: baseData.service,
+              namespace: baseData.namespace,
+              version: baseData.version,
+              requestBody: baseData.requestBody,
+              requestContentType: baseData.requestContentType,
+              responseBody: resp2xx?.responseBody,
+              responseContentType: resp2xx?.responseContentType,
+              requestSchema: undefined,
+              responseSchema: undefined,
+              avgReplica: baseData.replica,
+              combined: successCount,
+              status: String(resp2xx?.status ?? "200"),
+              latency: this.computeLatencyCV(stats.maxLatency, successCount),
+            });
+          }
+
+          if (errorCount > 0) {
+            const resp5xx = responses?.find(r => String(r.status).startsWith("5"));
+            combinedList.push({
+              uniqueServiceName: baseData.uniqueServiceName,
+              uniqueEndpointName: baseData.uniqueEndpointName,
+              latestTimestamp: timestampMicro,
+              method: baseData.method,
+              service: baseData.service,
+              namespace: baseData.namespace,
+              version: baseData.version,
+              requestBody: baseData.requestBody,
+              requestContentType: baseData.requestContentType,
+              responseBody: resp5xx?.responseBody,
+              responseContentType: resp5xx?.responseContentType,
+              requestSchema: undefined,
+              responseSchema: undefined,
+              avgReplica: baseData.replica,
+              combined: errorCount,
+              status: String(resp5xx?.status ?? "500"),
+              latency: this.computeLatencyCV(stats.maxLatency, errorCount),
+            });
+          }
+        }
+        realtimeDataPerHour.set(`${day}-${hour}`, combinedList);
       }
-      return result;
+    }
+    return realtimeDataPerHour;
+  }
+
+
+  private computeLatencyCV(
+    baseLatency: number,
+    count: number
+  ): { scaledMean: number; scaledDivBase: number; cv: number; scaleLevel: number } {
+    if (count <= 0) return { scaledMean: 0, scaledDivBase: 0, cv: 0, scaleLevel: 0 };
+
+    // Generate jittered latencies
+    const latencies: number[] = [];
+    for (let i = 0; i < count; i++) {
+      // Apply ±10% random fluctuation around baseLatency
+      const jittered = Math.round(baseLatency * (0.9 + Math.random() * 0.2));
+      latencies.push(jittered);
     }
 
-    // Handle other primitives with arrays
-    if (arrayNotations) {
-      let result = `"${baseType}"`;
-      for (let i = 0; i < arrayNotations.length / 2; i++) {
-        result = `[${result}]`;
-      }
-      return result;
+    // Calculate scaleFactor and scaleLevel based on the range of latencies
+    const { scaleFactor, scaleLevel } = this.calculateScaleFactor(latencies);
+
+    // Apply the same scaling factor to all latency samples
+    const scaled = latencies.map(l => l / scaleFactor);
+
+    // Compute mean and sum of squares (divBase) on the scaled values
+    const sum = scaled.reduce((s, v) => s + v, 0);
+    const mean = sum / count;
+    const divBase = scaled.reduce((s, v) => s + v * v, 0);
+
+    // Compute variance and coefficient of variation (CV)
+    const variance = divBase / count - mean * mean;
+    const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
+
+    return {
+      scaledMean: Utils.ToPrecise(mean),
+      scaledDivBase: Utils.ToPrecise(divBase),
+      cv: Utils.ToPrecise(cv),
+      scaleLevel
+    };
+  }
+  private calculateScaleFactor(latencies: number[]): { scaleFactor: number; scaleLevel: number } {
+    if (latencies.length === 0) return { scaleFactor: 1, scaleLevel: 0 };
+    const minLatency = Math.min(...latencies);
+    const maxLatency = Math.max(...latencies);
+    if (minLatency <= 0 || maxLatency <= 0) return { scaleFactor: 1, scaleLevel: 0 };
+    const minExp = Math.floor(Math.log10(minLatency));
+    const maxExp = Math.floor(Math.log10(maxLatency));
+    if (maxExp > 0) {
+      return { scaleFactor: Math.pow(10, maxExp), scaleLevel: maxExp };
+    } else if (minExp < 0) {
+      return { scaleFactor: Math.pow(10, minExp), scaleLevel: minExp };
     }
-
-    // Default primitive
-    return `"${type}"`;
-  }
-  private deIdentify(
-    input: any,
-    isTypeDefinition: boolean
-  ): any {
-    if (Array.isArray(input)) {
-      return input.map(item => this.deIdentify(item, isTypeDefinition));
-    } else if (input !== null && typeof input === 'object') {
-      const newObj: any = {};
-      for (const key in input) {
-        newObj[key] = this.deIdentify(input[key], isTypeDefinition);
-      }
-      return newObj;
-    } else {
-      if (isTypeDefinition) {
-        if (input === "string") return ""; // Replace "string" with empty string
-        if (input === "number") return 0; // Replace "number" with 0
-        if (input === "boolean") return false; // Replace "boolean" with false
-        return null;// Default case (e.g., if the user inputs "strings" instead of "string", it will be parsed as null)
-      } else {
-        if (typeof input === 'string') return "";
-        if (typeof input === 'number') return 0;
-        if (typeof input === 'boolean') return false;
-        return null;
-      }
-    }
-  }
-  private deIdentifyJsonTypeDefinition(obj: any): any {
-    return this.deIdentify(obj, true);
-  }
-  private deIdentifyJsonSample(input: any): any {
-    return this.deIdentify(input, false);
-  }
-
-  private getExistingUniqueEndpointNameMappings(): Map<string, string> {
-    const entries = DataCache.getInstance()
-      .get<CLabelMapping>("LabelMapping")
-      .getData()
-      ?.entries();
-    const mapping = new Map<string, string>();
-    if (!entries) return mapping;
-    for (const [uniqueEndpointName] of entries) {
-      // try to remove the host part from the URL in uniqueEndpointName
-      const parts = uniqueEndpointName.split("\t");
-      if (parts.length != 5) continue;
-      const url = parts[4];
-      const path = this.getPathFromUrl(url);
-      parts[4] = path;
-      const key = parts.join("\t");
-      mapping.set(key, uniqueEndpointName);
-    }
-    return mapping;
-  }
-
-  private generateUniqueEndpointName(uniqueServiceName: string, serviceName: string, namespace: string, methodUpperCase: string, path: string) {
-    const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
-    const existing = existingUniqueEndpointNameMappings.get(`${uniqueServiceName}\t${methodUpperCase}\t${path}`);
-
-    if (existing) {
-      return existing;
-    } else {
-      const host = `http://${serviceName}.${namespace}.svc.cluster.local`;
-      const url = `${host}${path}`; // port default 80
-      return `${uniqueServiceName}\t${methodUpperCase}\t${url}`;
-    }
-  }
-
-  private generateUniqueServiceName(namespace: string, serviceName: string, version: string) {
-    return `${serviceName}\t${namespace}\t${version}`;
-  }
-
-  protected getPathFromUrl(url: string) {
-    try {
-      return new URL(url).pathname;
-    } catch {
-      return "/";
-    }
+    return { scaleFactor: 1, scaleLevel: 0 };
   }
 }
