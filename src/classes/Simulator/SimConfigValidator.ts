@@ -1,18 +1,18 @@
 import yaml from "js-yaml";
-import { CLabelMapping } from "../../classes/Cacheable/CLabelMapping";
+import { CLabelMapping } from "../Cacheable/CLabelMapping";
 import DataCache from "../../services/DataCache";
 
 import {
   TSimulationConfigYAML,
-  simulationYAMLSchema,
+  simulationConfigYAMLSchema,
   TSimulationConfigErrors,
   TSimulationConfigProcessResult,
 } from "../../entities/TSimulationConfig";
 
-
-
-
-export default class SimConfigFormatValidator {
+export default class SimConfigValidator {
+  private static instance?: SimConfigValidator ;
+  static getInstance = () => this.instance || (this.instance = new this());
+  private constructor() {};
 
   parseAndValidateRawYAML(yamlString: string): TSimulationConfigProcessResult {
     if (!yamlString.trim()) {
@@ -24,7 +24,7 @@ export default class SimConfigFormatValidator {
     try {
       const parsedYAML = yaml.load(yamlString) as TSimulationConfigYAML;
 
-      const formatValidationResult = simulationYAMLSchema.safeParse(parsedYAML);
+      const formatValidationResult = simulationConfigYAMLSchema.safeParse(parsedYAML);
       if (formatValidationResult.success) {
         const validationErrorsInParsedYaml = this.validateParsedYaml(parsedYAML);
         if (validationErrorsInParsedYaml.length > 0) {
@@ -331,7 +331,7 @@ export default class SimConfigFormatValidator {
     }
   }
 
-  getPathFromUrl(url: string) {
+  private getPathFromUrl(url: string) {
     try {
       return new URL(url).pathname;
     } catch {

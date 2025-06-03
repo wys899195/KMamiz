@@ -71,7 +71,7 @@ export default class SimulationService extends IRequestHandler {
             await ImportExportHandler.getInstance().clearData();
 
             //retrieve data from yaml
-            const result = simulator.yamlToSimulationData(decodedYAMLData);
+            const result = simulator.generateSimulationDataFromConfig(decodedYAMLData);
 
             if (result.validationErrorMessage) {
               return res.status(400).json({ message: result.validationErrorMessage });

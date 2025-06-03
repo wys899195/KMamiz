@@ -114,7 +114,7 @@ export const loadSimulationSchema = z.object({
   endpointMetrics: z.array(simulationEndpointMetricSchema),
 }).strict();
 
-export const simulationYAMLSchema = z.object({
+export const simulationConfigYAMLSchema = z.object({
   servicesInfo: z.array(simulationNamespaceSchema),
   endpointDependencies: z.array(simulationEndpointDependencySchema),
   loadSimulation: loadSimulationSchema.optional(),
@@ -137,9 +137,9 @@ export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDep
 //  trafficSimulation
 export type TSimulationTrafficConfig = z.infer<typeof simulationTrafficConfigSchema>;
 export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
-export type TSimulationTraffics = z.infer<typeof loadSimulationSchema>;
+export type TLoadSimulation = z.infer<typeof loadSimulationSchema>;
 
-export type TSimulationConfigYAML = z.infer<typeof simulationYAMLSchema>;
+export type TSimulationConfigYAML = z.infer<typeof simulationConfigYAMLSchema>;
 
 
 

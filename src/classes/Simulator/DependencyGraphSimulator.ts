@@ -1,5 +1,5 @@
 import yaml from "js-yaml";
-import SimConfigPreprocessor from './SimConfigPreprocessor';
+import SimulationConfigManager from "./SimulationConfigManager";
 import { TGraphData } from "../../entities/TGraphData";
 import {
   TSimulationService,
@@ -9,7 +9,6 @@ import {
   TSimulationEndpointDependency,
   TSimulationNamespace,
 } from "../../entities/TSimulationConfig";
-
 import { TRequestType, TRequestTypeUpper } from '../../entities/TRequestType'
 import { TEndpointDependency, TEndpointInfo } from "../../entities/TEndpointDependency";
 import { EndpointDependencies } from "../EndpointDependencies";
@@ -17,18 +16,13 @@ import { EndpointDependencies } from "../EndpointDependencies";
 export default class DependencyGraphSimulator {
   private static instance?: DependencyGraphSimulator;
   static getInstance = () => this.instance || (this.instance = new this());
-
-  private simConfigProcessor: SimConfigPreprocessor;
-
-  private constructor() {
-    this.simConfigProcessor = new SimConfigPreprocessor();
-  }
+  private constructor() {}
 
   yamlToGraphData(yamlString: string): {
     errorMessage: string,
     graph: TGraphData,
   } {
-    const { errorMessage, parsedConfig } = this.simConfigProcessor.validateAndPrerocessSimConfig(yamlString);
+    const { errorMessage, parsedConfig } = SimulationConfigManager.getInstance().validateAndPrerocessSimConfig(yamlString);
 
     if (!parsedConfig) {
       return {
@@ -134,7 +128,36 @@ export default class DependencyGraphSimulator {
 
   }
 
-  buildDependencyMaps(dependencies?: TSimulationEndpointDependency[]): {
+  buildEndpointDependenciesAndDependOnMap(
+    parsedConfig: TSimulationConfigYAML,
+    simulateDate: number
+  ) {
+    const {
+      endpointInfoSet
+    } = this.extractEndpointsInfo(
+      parsedConfig.servicesInfo,
+      simulateDate
+    );
+
+    const {
+      dependOnMap,
+      dependByMap
+    } = this.buildDependencyMaps(parsedConfig.endpointDependencies);
+
+    const endpointDependencies = this.createEndpointDependencies(
+      simulateDate,
+      endpointInfoSet,
+      dependOnMap,
+      dependByMap,
+    );
+
+    return {
+      dependOnMap,
+      endpointDependencies,
+    }
+  }
+
+  private buildDependencyMaps(dependencies?: TSimulationEndpointDependency[]): {
     dependOnMap: Map<string, Set<string>>;
     dependByMap: Map<string, Set<string>>;
   } {
@@ -168,7 +191,7 @@ export default class DependencyGraphSimulator {
     return { dependOnMap, dependByMap };
   }
 
-  extractEndpointsInfo(
+  private extractEndpointsInfo(
     servicesInfo: TSimulationNamespace[],
     convertDate: number,
   ): {
@@ -216,7 +239,7 @@ export default class DependencyGraphSimulator {
     return { endpointInfoSet };
   }
 
-  createEndpointDependencies(
+  private createEndpointDependencies(
     convertDate: number,
     endpointInfoSet: Map<string, TEndpointInfo>,
     dependOnMap: Map<string, Set<string>>,
