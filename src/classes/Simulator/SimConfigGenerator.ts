@@ -17,14 +17,10 @@ import { CEndpointDataType } from "../Cacheable/CEndpointDataType";
 import { CReplicas } from "../Cacheable/CReplicas";
 
 
-export default class StaticSimConfigGenerator {
-  private static instance?: StaticSimConfigGenerator;
-  static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() { };
-
+export default class SimConfigGenerator {
   // Retrieve necessary data from kmamiz and convert it into a YAML file that can be used to generate static simulation data
   // (such as software quality metrics, dependency graphs, endpoint data formats, etc.)
-  generateStaticYamlFromCurrentData() {
+  generateSimConfigFromCurrentStaticData() {
     const existingEndpointDependencies = DataCache.getInstance()
       .get<CEndpointDependencies>("EndpointDependencies")
       .getData()?.toJSON() || [];

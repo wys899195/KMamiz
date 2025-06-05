@@ -10,10 +10,6 @@ import {
 } from "../../entities/TSimulationConfig";
 
 export default class SimConfigValidator {
-  private static instance?: SimConfigValidator ;
-  static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() {};
-
   parseAndValidateRawYAML(yamlString: string): TSimulationConfigProcessResult {
     if (!yamlString.trim()) {
       return {

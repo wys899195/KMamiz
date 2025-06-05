@@ -138,7 +138,6 @@ export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDep
 export type TSimulationTrafficConfig = z.infer<typeof simulationTrafficConfigSchema>;
 export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
 export type TLoadSimulation = z.infer<typeof loadSimulationSchema>;
-
 export type TSimulationConfigYAML = z.infer<typeof simulationConfigYAMLSchema>;
 
 

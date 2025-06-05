@@ -6,10 +6,6 @@ import {
 } from "../../entities/TSimulationConfig";
 
 export default class SimConfigPreprocessor {
-  private static instance?: SimConfigPreprocessor;
-  static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() { };
-
   preprocessEndpointDataTypeInYaml(parsedYamlAfterValidation: TSimulationConfigYAML): TSimulationConfigProcessResult {
     let errorMessage: TSimulationConfigErrors[] = [];
     try {

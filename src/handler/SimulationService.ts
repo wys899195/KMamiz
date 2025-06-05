@@ -1,7 +1,7 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import DependencyGraphSimulator from "../classes/Simulator/DependencyGraphSimulator";
 import Simulator from "../classes/Simulator/Simulator";
-import StaticSimConfigGenerator from "../classes/Simulator/StaticSimConfigGenerator";
+import SimulationConfigManager from "../classes/Simulator/SimulationConfigManager";
 import { TGraphData } from "../entities/TGraphData";
 import ServiceOperator from "../services/ServiceOperator";
 import ImportExportHandler from "../services/ImportExportHandler";
@@ -104,10 +104,10 @@ export default class SimulationService extends IRequestHandler {
 
     this.addRoute(
       "get",
-      "/generateStaticYaml",
+      "/generateStaticSimConfig",
       async (_, res) => {
         try {
-          const staticYamlStr = StaticSimConfigGenerator.getInstance().generateStaticYamlFromCurrentData();
+          const staticYamlStr = SimulationConfigManager.getInstance().generateStaticSimConfig();
           return res.status(200).json({
             staticYamlStr: staticYamlStr,
             message: "ok"
@@ -120,27 +120,7 @@ export default class SimulationService extends IRequestHandler {
         }
       }
     );
-
-
   }
-
-  // getTagsOfDiffData(): { tag: string; time: number }[] {
-  //   return DataCache.getInstance()
-  //     .get<CTaggedSimulationYAML>("TaggedDiffDatas")
-  //     .getTagsWithTime();
-  // }
-
-  // addTaggedDiffData(tagged: TTaggedDiffData) {
-  //   DataCache.getInstance()
-  //     .get<CTaggedSimulationYAML>("TaggedDiffDatas")
-  //     .add(tagged);
-  // }
-
-  // deleteTaggedDiffData(tag: string) {
-  //   DataCache.getInstance()
-  //     .get<CTaggedSimulationYAML>("TaggedDiffDatas")
-  //     .delete(tag);
-  // }
 
   private toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
     const linkSet = new Set<string>();
