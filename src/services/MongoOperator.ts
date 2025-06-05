@@ -50,18 +50,39 @@ export default class MongoOperator {
     return (filtered[0].toObject() as TAggregatedData) || null;
   }
 
-  async getHistoricalData(namespace?: string, time = 86400000 * 30) {
-    const inAMonth = Date.now() - time
-    const notBefore = new Date(GlobalSettings.ReadOnlyMode ? 0 : inAMonth);
+  async getHistoricalData(namespace?: string, timeOffset = 86400000 * 30) {
+
+    const now = new Date(Date.now());
+
+    let startTime: number;
+    let endTime: number;
+
+    if (timeOffset >= 0) {
+      // Query past data
+      startTime = GlobalSettings.ReadOnlyMode ? 0 :  now.getTime() - timeOffset;
+      endTime = now.getTime();
+    } else {
+      // Query future data (simulator)
+      now.setMinutes(0, 0, 0);
+      startTime = now.getTime();
+      endTime = now.getTime() - timeOffset;
+    }
+
+    const match = {
+      date: {
+        $gte: new Date(startTime),
+        $lte: new Date(endTime),
+      },
+    };
+
     if (!namespace) {
       return (
-        await HistoricalDataModel.find({
-          date: { $gte: notBefore },
-        }).exec()
+        await HistoricalDataModel.find(match).exec()
       ).map((r) => r.toObject());
     }
+
     const res = await HistoricalDataModel.aggregate([
-      { $match: { date: { $gte: notBefore } } },
+      { $match: match },
       {
         $project: {
           _id: "$_id",
@@ -76,6 +97,7 @@ export default class MongoOperator {
         },
       },
     ]).exec();
+
     return res.map((r) => r.toObject()) as THistoricalData[];
   }
 
@@ -137,7 +159,7 @@ export default class MongoOperator {
     await MongoOperator.getInstance().deleteAll(TaggedInterfaceModel);
     await MongoOperator.getInstance().deleteAll(TaggedSwaggerModel);
     await MongoOperator.getInstance().deleteAll(TaggedDiffDataModel);
-    
+
   }
 
 }
