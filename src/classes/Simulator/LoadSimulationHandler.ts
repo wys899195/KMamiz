@@ -46,6 +46,7 @@ export default class LoadSimulationHandler {
   generateHourlyCombinedRealtimeDataMap(
     loadSimulationSettings: TLoadSimulation,
     dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
     replicaCountList: TReplicaCount[],
     EndpointRealTimeBaseDatas: Map<string, TBaseDataWithResponses>,
     simulateDate: number
@@ -62,6 +63,7 @@ export default class LoadSimulationHandler {
     // expected incoming traffic for each service under normal (non-overloaded) conditions
     const trafficPropagationWithBasicErrorResults = this.simulateTrafficWithBaseErrorRates(
       dependOnMap,
+      dependByMap,
       hourlyRequestCountsForEachDayMap,
       latencyMap,
       basicErrorRateMap,
@@ -80,6 +82,7 @@ export default class LoadSimulationHandler {
     // to obtain actual traffic distribution considering both "base errors" and "overload-induced errors"
     const trafficPropagationWithOverloadErrorResults = this.simulateTrafficWithAdjustedErrorRates(
       dependOnMap,
+      dependByMap,
       hourlyRequestCountsForEachDayMap,
       latencyMap,
       generateAdjustedErrorRatePerHourResult,
@@ -177,6 +180,7 @@ export default class LoadSimulationHandler {
 
   private simulateTrafficWithBaseErrorRates(
     dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
     hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>
@@ -196,6 +200,7 @@ export default class LoadSimulationHandler {
             entryPointId,
             count,
             dependOnMap,
+            dependByMap,
             latencyMap,
             errorRateMap
           );
@@ -233,6 +238,7 @@ export default class LoadSimulationHandler {
 
   private simulateTrafficWithAdjustedErrorRates(
     dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
     hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
     latencyMap: Map<string, number>,
     adjustedErrorRatePerHour: Map<string, Map<string, number>>
@@ -256,6 +262,7 @@ export default class LoadSimulationHandler {
             entryPointId,
             count,
             dependOnMap,
+            dependByMap,
             latencyMap,
             errorRateMapForHour
           );
@@ -461,7 +468,8 @@ export default class LoadSimulationHandler {
   private simulateTrafficPropagationFromSingleEntry(
     entryPointId: string,
     initialRequestCount: number,
-    dependencyGraph: Map<string, Set<string>>,
+    dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>,
   ): {
@@ -500,7 +508,7 @@ export default class LoadSimulationHandler {
       const successfulRequests = propagatedRequests - errorCount;
 
       // Recursively propagate to dependent child endpoints
-      const children = dependencyGraph.get(endpointId);
+      const children = dependOnMap.get(endpointId);
       let maxChildLatency = 0;
       if (children) {
         for (const childId of children) {

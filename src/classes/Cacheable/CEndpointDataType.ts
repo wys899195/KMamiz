@@ -47,20 +47,19 @@ export class CEndpointDataType extends Cacheable<EndpointDataType[]> {
 
   setData(update: EndpointDataType[]): void {
     const data = super.getData();
+    const dataTypeMap = new Map<string, EndpointDataType>();
     if (data) {
-      const dataTypeMap = new Map<string, EndpointDataType>();
       data.forEach((d) => {
         dataTypeMap.set(d.toJSON().uniqueEndpointName, d);
       });
-
-      update.forEach((d) => {
-        const id = d.toJSON().uniqueEndpointName;
-        const existing = dataTypeMap.get(id);
-        dataTypeMap.set(id, existing ? existing.mergeSchemaWith(d) : d);
-      });
-
-      update = [...dataTypeMap.values()];
     }
+    update.forEach((d) => {
+      const id = d.toJSON().uniqueEndpointName;
+      const existing = dataTypeMap.get(id);
+      dataTypeMap.set(id, existing ? existing.mergeSchemaWith(d) : d);
+    });
+
+    update = [...dataTypeMap.values()];
     super.setData(update.map((t) => t.trim()));
   }
 }

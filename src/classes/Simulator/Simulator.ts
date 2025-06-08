@@ -12,7 +12,7 @@ import { TRealtimeData } from "../../entities/TRealtimeData";
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointDependency } from "../../entities/TEndpointDependency";
 import { TRequestTypeUpper } from "../../entities/TRequestType";
-import { TEndpointDataType } from "../../entities/TEndpointDataType";
+import EndpointDataType from '../EndpointDataType';
 import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
 import { EndpointDependencies } from "../EndpointDependencies";
 import { RealtimeDataList } from "../RealtimeDataList";
@@ -39,7 +39,7 @@ export default class Simulator {
     validationErrorMessage: string; // error message when validating YAML format
     convertingErrorMessage: string; // error message when converting to realtime data
     endpointDependencies: TEndpointDependency[];
-    dataType: TEndpointDataType[];
+    dataType: EndpointDataType[];
     replicaCountList: TReplicaCount[];
     realtimeCombinedDataPerHourMap: Map<string, TCombinedRealtimeData[]>
   } {
@@ -69,7 +69,7 @@ export default class Simulator {
       simulateDate
     );
 
-    const { dependOnMap, endpointDependencies } =
+    const { dependOnMap, dependByMap, endpointDependencies } =
       DependencyGraphSimulator.getInstance().buildEndpointDependenciesAndDependOnMap(
         parsedConfig,
         simulateDate
@@ -82,6 +82,7 @@ export default class Simulator {
         LoadSimulationHandler.getInstance().generateHourlyCombinedRealtimeDataMap(
           parsedConfig.loadSimulation,
           dependOnMap,
+          dependByMap,
           replicaCountList,
           EndpointRealTimeBaseDatas,
           simulateDate
@@ -131,7 +132,7 @@ export default class Simulator {
 
     return {
       endpointDependencies: dep.toJSON(),
-      dataType: dataType.map((d) => d.toJSON()),
+      dataType: dataType,
     }
   }
 

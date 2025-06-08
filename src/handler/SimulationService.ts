@@ -82,8 +82,8 @@ export default class SimulationService extends IRequestHandler {
               try {
                 ServiceOperator.getInstance().updateStaticSimulateDataToCache({
                   dependencies: result.endpointDependencies,
-                  dataType: result.dataType,
-                  replicaCount: result.replicaCountList
+                  dataTypes:result.dataType,
+                  replicaCounts: result.replicaCountList
                 });
 
                 await ServiceOperator.getInstance().updateDynamicSimulateData({

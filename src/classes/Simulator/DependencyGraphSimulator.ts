@@ -16,7 +16,7 @@ import { EndpointDependencies } from "../EndpointDependencies";
 export default class DependencyGraphSimulator {
   private static instance?: DependencyGraphSimulator;
   static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() {}
+  private constructor() { }
 
   yamlToGraphData(yamlString: string): {
     errorMessage: string,
@@ -131,7 +131,11 @@ export default class DependencyGraphSimulator {
   buildEndpointDependenciesAndDependOnMap(
     parsedConfig: TSimulationConfigYAML,
     simulateDate: number
-  ) {
+  ): {
+    dependOnMap: Map<string, Set<string>>,
+    dependByMap: Map<string, Set<string>>,
+    endpointDependencies: TEndpointDependency[]
+  } {
     const {
       endpointInfoSet
     } = this.extractEndpointsInfo(
@@ -153,6 +157,7 @@ export default class DependencyGraphSimulator {
 
     return {
       dependOnMap,
+      dependByMap,
       endpointDependencies,
     }
   }

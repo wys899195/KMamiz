@@ -338,21 +338,20 @@ export default class ServiceOperator {
 
   updateStaticSimulateDataToCache(data: {
     dependencies: TEndpointDependency[],
-    dataType: TEndpointDataType[],
-    replicaCount: TReplicaCount[],
+    dataTypes: EndpointDataType[],
+    replicaCounts: TReplicaCount[],
   }) {
     const dep = new EndpointDependencies(data.dependencies);
-    const dt = data.dataType.map((dt) => new EndpointDataType(dt));
 
     DataCache.getInstance()
       .get<CEndpointDependencies>("EndpointDependencies")
       .setData(dep);
     DataCache.getInstance()
       .get<CReplicas>("ReplicaCounts")
-      .setData(data.replicaCount);
+      .setData(data.replicaCounts);
     DataCache.getInstance()
       .get<CEndpointDataType>("EndpointDataType")
-      .setData(dt);
+      .setData(data.dataTypes);
     ServiceUtils.getInstance().updateLabel();
     DataCache.getInstance()
       .get<CLabeledEndpointDependencies>("LabeledEndpointDependencies")
