@@ -44,7 +44,6 @@ export default class ImportExportHandler {
   }
 
   async clearData() {
-    console.log("clearData!!")
     DataCache.getInstance().clear();
     DataCache.getInstance().register([
       new CLabelMapping(),

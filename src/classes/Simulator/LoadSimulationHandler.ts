@@ -1,4 +1,5 @@
 import {
+  TSimulationServiceMetric,
   TSimulationEndpointMetric,
   TSimulationEndpointDatatype,
   TLoadSimulation
@@ -41,17 +42,17 @@ type TTrafficSimulationResult = Map<number, TDailyTrafficStatsMap>;
 export default class LoadSimulationHandler {
   private static instance?: LoadSimulationHandler;
   static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() {}
-  
+  private constructor() { }
+
   generateHourlyCombinedRealtimeDataMap(
     loadSimulationSettings: TLoadSimulation,
     dependOnMap: Map<string, Set<string>>,
-    dependByMap: Map<string, Set<string>>,
     replicaCountList: TReplicaCount[],
     EndpointRealTimeBaseDatas: Map<string, TBaseDataWithResponses>,
     simulateDate: number
   ): Map<string, TCombinedRealtimeData[]> {
-    const endpointMetrics = loadSimulationSettings.endpointMetrics;
+    const serviceMetrics: TSimulationServiceMetric[] = loadSimulationSettings.serviceMetrics;
+    const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
     const simulationDurationInDays = loadSimulationSettings.config?.simulationDurationInDays ?? 1;
     const {
       hourlyRequestCountsForEachDayMap,
@@ -63,7 +64,6 @@ export default class LoadSimulationHandler {
     // expected incoming traffic for each service under normal (non-overloaded) conditions
     const trafficPropagationWithBasicErrorResults = this.simulateTrafficWithBaseErrorRates(
       dependOnMap,
-      dependByMap,
       hourlyRequestCountsForEachDayMap,
       latencyMap,
       basicErrorRateMap,
@@ -75,14 +75,15 @@ export default class LoadSimulationHandler {
     const serviceRequestCountsPerHour = this.aggregateServiceRequestCountPerHour(trafficPropagationWithBasicErrorResults);
     const generateAdjustedErrorRatePerHourResult = this.generateAdjustedEndpointErrorRatePerHour(
       serviceRequestCountsPerHour,
-      basicErrorRateMap, replicaCountList
+      basicErrorRateMap,
+      replicaCountList,
+      serviceMetrics
     )
 
     // Re-run traffic propagation with adjusted error rates  
     // to obtain actual traffic distribution considering both "base errors" and "overload-induced errors"
     const trafficPropagationWithOverloadErrorResults = this.simulateTrafficWithAdjustedErrorRates(
       dependOnMap,
-      dependByMap,
       hourlyRequestCountsForEachDayMap,
       latencyMap,
       generateAdjustedErrorRatePerHourResult,
@@ -180,7 +181,6 @@ export default class LoadSimulationHandler {
 
   private simulateTrafficWithBaseErrorRates(
     dependOnMap: Map<string, Set<string>>,
-    dependByMap: Map<string, Set<string>>,
     hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>
@@ -188,7 +188,6 @@ export default class LoadSimulationHandler {
 
     const results: TTrafficSimulationResult = new Map();
 
-    console.log(hourlyRequestCountsForEachDayMap)
     for (const [entryPointId, dailyHourlyCounts] of hourlyRequestCountsForEachDayMap.entries()) {
       for (let day = 0; day < dailyHourlyCounts.length; day++) {
         const hourlyCounts = dailyHourlyCounts[day];
@@ -200,11 +199,10 @@ export default class LoadSimulationHandler {
             entryPointId,
             count,
             dependOnMap,
-            dependByMap,
+
             latencyMap,
             errorRateMap
           );
-          console.log("errorRateMap", errorRateMap)
 
           if (!results.has(day)) {
             results.set(day, new Map());
@@ -228,7 +226,7 @@ export default class LoadSimulationHandler {
             existingStats.requestCount += stat.requestCount;
             existingStats.errorCount += stat.errorCount;
             existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
-            console.log(hourlyStats.get(targetEndpointId))
+            // console.log(hourlyStats.get(targetEndpointId))
           }
         }
       }
@@ -238,7 +236,6 @@ export default class LoadSimulationHandler {
 
   private simulateTrafficWithAdjustedErrorRates(
     dependOnMap: Map<string, Set<string>>,
-    dependByMap: Map<string, Set<string>>,
     hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
     latencyMap: Map<string, number>,
     adjustedErrorRatePerHour: Map<string, Map<string, number>>
@@ -262,11 +259,11 @@ export default class LoadSimulationHandler {
             entryPointId,
             count,
             dependOnMap,
-            dependByMap,
+
             latencyMap,
             errorRateMapForHour
           );
-          console.log("errorRateMapForHour ", errorRateMapForHour)
+          // console.log("errorRateMapForHour ", errorRateMapForHour)
 
           if (!results.has(day)) {
             results.set(day, new Map());
@@ -290,7 +287,7 @@ export default class LoadSimulationHandler {
             existingStats.requestCount += stat.requestCount;
             existingStats.errorCount += stat.errorCount;
             existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
-            console.log(hourlyStats.get(targetEndpointId))
+            // console.log(hourlyStats.get(targetEndpointId))
           }
         }
       }
@@ -302,20 +299,30 @@ export default class LoadSimulationHandler {
     serviceRequestCountsPerHour: Map<string, Map<string, number>>,
     basicErrorRateMap: Map<string, number>,
     replicaCountList: TReplicaCount[],
-    replicaMaxQPS: number = 1 // Maximum throughput per second for a single service replica. If the requests per second exceed this value, the service is considered overloaded.
+    serviceMetrics: TSimulationServiceMetric[],
   ): Map<string, Map<string, number>> {
 
-    // serviceId => replica count
+    // Map :serviceId => replica count
     const replicaCountMap = new Map<string, number>();
     for (const replicaInfo of replicaCountList) {
       replicaCountMap.set(replicaInfo.uniqueServiceName, replicaInfo.replicas);
     }
 
-    // endpointId => serviceId
+    // Map :endpointId => serviceId
     const endpointToServiceMap = new Map<string, string>();
     for (const endpointId of basicErrorRateMap.keys()) {
       const serviceId = endpointId.split('\t').slice(0, 3).join('\t');
       endpointToServiceMap.set(endpointId, serviceId);
+    }
+
+    // Map :endpointId => serviceId
+    const serviceCapacityMap = new Map<string, number>();
+    for (const metric of serviceMetrics) {
+      for (const version of metric.versions) {
+        if (version.serviceId) {
+          serviceCapacityMap.set(version.serviceId, version.capacityPerReplica);
+        }
+      }
     }
 
     // Final result: Map<dayHour, Map<endpointId, adjustedErrorRate>>
@@ -332,13 +339,14 @@ export default class LoadSimulationHandler {
         const requestCountPerSecond = requestCountPerHour / 3600;
 
         const replicaCount = replicaCountMap.get(serviceId) ?? 1;
+        const replicaMaxRPS = serviceCapacityMap.get(serviceId) ?? 1;
 
-        const adjustedErrorRate = this.estimateErrorRateWithServiceOverload(
+        const adjustedErrorRate = this.estimateErrorRateWithServiceOverload({
           requestCountPerSecond,
           replicaCount,
-          replicaMaxQPS,
+          replicaMaxRPS,
           baseErrorRate
-        );
+        });
 
         adjustedMap.set(endpointId, adjustedErrorRate);
       }
@@ -469,13 +477,13 @@ export default class LoadSimulationHandler {
     entryPointId: string,
     initialRequestCount: number,
     dependOnMap: Map<string, Set<string>>,
-    dependByMap: Map<string, Set<string>>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>,
   ): {
     entryPointId: string;
     stats: Map<string, { requestCount: number; errorCount: number; maxLatency: number }>;
   } {
+    // console.log(dependByMap);
     // If there are no initial requests, return empty stats
     if (initialRequestCount <= 0) {
       return { entryPointId, stats: new Map() };
@@ -544,23 +552,29 @@ export default class LoadSimulationHandler {
     return parts.slice(0, 3).join('\t');
   }
 
-  private estimateErrorRateWithServiceOverload(
+  private estimateErrorRateWithServiceOverload(data: {
     requestCountPerSecond: number,
     replicaCount: number,
-    replicaMaxQPS: number,
+    replicaMaxRPS: number,
     baseErrorRate: number,
-  ): number {
-    const capacity = replicaCount * replicaMaxQPS; // Total system processing capacity (requests per second)
+  }): number {
+    const capacity = data.replicaCount * data.replicaMaxRPS; // Total system processing capacity (requests per second)
 
-    const utilization = requestCountPerSecond / capacity; // System utilization (load ratio)
+    if (capacity === 0) {
+      // If there's no capacity, the service cannot handle any request.
+      // Consider this as a full failure (100% error rate).
+      return 1;
+    }
+
+    const utilization = data.requestCountPerSecond / capacity; // System utilization (load ratio)
     // console.log("----------")
     //   console.log("requestCountPerSecond", requestCountPerSecond)
     // console.log(` replicas: ${replicaCount}`)
     //  console.log(` capacity: ${capacity}`)
-    console.log(` utilization: ${utilization}`)
+    // console.log(` utilization: ${utilization}`)
     if (utilization <= 1) {
       // When the system is not overloaded, the error rate remains at the baseline error rate.
-      return baseErrorRate;
+      return data.baseErrorRate;
     }
 
     const overloadFactor = utilization - 1; // Overload ratio (the portion where utilization exceeds 1)
@@ -572,7 +586,7 @@ export default class LoadSimulationHandler {
 
     // Total error rate = base error rate + remaining available error rate * overload-induced error rate
     // (Overload-induced errors only affect requests that were originally successful, hence (1 - baseErrorRate) is used)
-    const totalErrorRate = baseErrorRate + (1 - baseErrorRate) * serviceOverloadErrorRate;
+    const totalErrorRate = data.baseErrorRate + (1 - data.baseErrorRate) * serviceOverloadErrorRate;
 
     return Math.min(1, totalErrorRate);
   }

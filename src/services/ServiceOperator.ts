@@ -369,8 +369,8 @@ export default class ServiceOperator {
         return hourA - hourB;
       }
     );
-    for (const [ key , hourlyCombinedDataList] of sortedEntries) {
-      console.log(`hourlyCombinedDataList ${key}: ${JSON.stringify(hourlyCombinedDataList,null,2)}`)
+    for (const [ _ , hourlyCombinedDataList] of sortedEntries) {
+      // console.log(`hourlyCombinedDataList ${key}: ${JSON.stringify(hourlyCombinedDataList,null,2)}`)
       if (hourlyCombinedDataList.length > 0) {
         DataCache.getInstance()
           .get<CCombinedRealtimeData>("CombinedRealtimeData")

@@ -7,12 +7,15 @@ import {
 
 export default class SimConfigPreprocessor {
   preprocessEndpointDataTypeInYaml(parsedYamlAfterValidation: TSimulationConfigYAML): TSimulationConfigProcessResult {
-    let errorMessage: TSimulationConfigErrors[] = [];
+    let errorMessageDetails: TSimulationConfigErrors[] = [];
     try {
-      errorMessage = this.validateAndPreprocessEndpointBodies(parsedYamlAfterValidation);
-      if (errorMessage.length) {
+      errorMessageDetails = this.validateAndPreprocessEndpointBodies(parsedYamlAfterValidation);
+      if (errorMessageDetails.length) {
         return {
-          errorMessage: errorMessage.map(e => `• Error at ${e.location}: ${e.message}`).join("\n"),
+          errorMessage: [
+            "Failed to preprocess endpoint data types in YAML:",
+            ...errorMessageDetails.map(e => `At ${e.errorLocation}: ${e.message}`)
+          ].join("\n---\n"),
           parsedConfig: null,
         }
       }
@@ -22,7 +25,7 @@ export default class SimConfigPreprocessor {
       }
     } catch (e) {
       return {
-        errorMessage: `An error occurred while preprocessing endpoint data types in the YAML: \n\n${e instanceof Error ? e.message : e}`,
+        errorMessage: `Failed to preprocess endpoint data types in YAML:\n---\n${e instanceof Error ? e.message : e}`,
         parsedConfig: null,
       };
     }
@@ -39,7 +42,7 @@ export default class SimConfigPreprocessor {
                 const result = this.preprocessJsonBody(endpoint.datatype.requestBody);
                 if (!result.isSuccess) {
                   errorMessages.push({
-                    location: `servicesInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}]`,
+                    errorLocation: `servicesInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}]`,
                     message: `Unacceptable format in requestBody of endpoint "${endpoint.endpointId}": ${result.warningMessage}`
                   });
 
@@ -52,7 +55,7 @@ export default class SimConfigPreprocessor {
                   const result = this.preprocessJsonBody(response.responseBody);
                   if (!result.isSuccess) {
                     errorMessages.push({
-                      location: `servicesInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}]`,
+                      errorLocation: `servicesInfo[${nsIndex}].services[${svcIndex}].versions[${verIndex}].endpoints[${epIndex}]`,
                       message: `Unacceptable format in responseBody (status: ${response.status}) of endpoint "${endpoint.endpointId}": ${result.warningMessage}`
                     });
                   } else {

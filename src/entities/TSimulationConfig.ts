@@ -3,11 +3,31 @@ import { requestType } from "./TRequestType";
 import { z } from "zod";
 
 /**** Yaml format checking ****/
+const endpointIdSchema = z.preprocess(
+  (val) => (typeof val === "number" ? val.toString() : val),
+  z.string()
+    .refine(s => s.trim().length > 0, { message: "endpointId cannot be empty." })
+    .transform(s => s.trim())
+);
+const versionSchema = z.preprocess(
+  (val) => (typeof val === "number" ? val.toString() : val),
+  z.string()
+    .refine(s => s.trim().length > 0, { message: "version cannot be empty." })
+    .transform(s => s.trim())
+);
+const statusCodeSchema = z.union([
+  z.number().int().refine((val) => val >= 100 && val <= 599, {
+    message: "Invalid status. It must be between 100 and 599.",
+  }),
+  z.string().refine((val) => {
+    const num = Number(val);
+    return Number.isInteger(num) && num >= 100 && num <= 599;
+  }, {
+    message: "Invalid status. It must be an integer string between 100 and 599.",
+  }),
+]);;
 export const simulationResponseBodySchema = z.object({
-  status: z.number().int().refine(
-    (val) => val >= 100 && val <= 599,
-    { message: "Invalid status. It must be between 100 and 599." }
-  ),
+  status: statusCodeSchema,
   responseContentType: z.string(),
   responseBody: z.string(),
 }).strict();
@@ -24,20 +44,14 @@ export const simulationEndpointInfoSchema = z.object({
 }).strict();
 
 export const simulationEndpointSchema = z.object({
-  endpointId: z.preprocess(
-    (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointId cannot be empty." })
-  ),
+  endpointId: endpointIdSchema,
   endpointInfo: simulationEndpointInfoSchema,
   datatype: simulationEndpointDatatypeSchema.optional(),
 }).strict();
 
 export const simulationServiceVersionSchema = z.object({
   serviceId: z.string().optional(),  // Users do not need to provide this; it will be populated by the system later.
-  version: z.preprocess(
-    (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "service name cannot be empty." })
-  ),
+  version: versionSchema,
   replica: z.number()
     .int({ message: "replica must be an integer." })
     .min(1, { message: "replica (the number of service instances) must be at least 1 to simulate injection." })
@@ -56,10 +70,7 @@ export const simulationNamespaceSchema = z.object({
 }).strict();
 
 export const simulationDependOnSchema = z.object({
-  endpointId: z.preprocess(
-    (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointId cannot be empty." })
-  ),
+  endpointId: endpointIdSchema,
   callRate: z.number().refine(
     (val) => val >= 0 && val <= 100,
     { message: "Invalid callRate. It must be between 0 and 100." }
@@ -67,15 +78,12 @@ export const simulationDependOnSchema = z.object({
 }).strict();
 
 export const simulationEndpointDependencySchema = z.object({
-  endpointId: z.preprocess(
-    (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointId cannot be empty." })
-  ),
+  endpointId: endpointIdSchema,
   dependOn: z.array(simulationDependOnSchema),
 }).strict();
 
 
-export const simulationTrafficConfigSchema = z.object({
+export const loadSimulationConfigSchema = z.object({
   simulationDurationInDays: z.number()
     .int({ message: "simulationDurationInDays must be an integer." })
     .min(1, { message: "simulationDurationInDays must be at least 1." })
@@ -83,11 +91,23 @@ export const simulationTrafficConfigSchema = z.object({
   // TODO: May expand with additional config options such as chaosMonkeyEnabled, errorRateAmplificationFactor, etc.
 }).strict();
 
+export const simulationServiceVersionMetricSchema = z.object({
+  serviceId: z.string().optional(),   // Users do not need to provide this; it will be populated by the system later.
+  version: versionSchema,
+  capacityPerReplica: z.number()
+    .int({ message: "capacityPerReplica must be an integer." })
+    .min(1, { message: "capacityPerReplica must be at least 1." })
+    .optional()
+    .default(1),
+}).strict();
+
+export const simulationServiceMetricSchema = z.object({
+  serviceName: z.string().min(1, { message: "serviceName cannot be empty." }),
+  versions: z.array(simulationServiceVersionMetricSchema),
+}).strict();
+
 export const simulationEndpointMetricSchema = z.object({
-  endpointId: z.preprocess(
-    (val) => (typeof val === "number" ? val.toString() : val),
-    z.string().min(1, { message: "endpointId cannot be empty." })
-  ),
+  endpointId: endpointIdSchema,
   latencyMs: z
     .number()
     .min(0, { message: "latencyMs must be zero or greater." })
@@ -110,7 +130,8 @@ export const simulationEndpointMetricSchema = z.object({
 }).strict();
 
 export const loadSimulationSchema = z.object({
-  config: simulationTrafficConfigSchema.optional(),
+  config: loadSimulationConfigSchema.optional(),
+  serviceMetrics: z.array(simulationServiceMetricSchema),
   endpointMetrics: z.array(simulationEndpointMetricSchema),
 }).strict();
 
@@ -134,17 +155,21 @@ export type TSimulationNamespace = z.infer<typeof simulationNamespaceSchema>;
 export type TSimulationDependOn = z.infer<typeof simulationDependOnSchema>;
 export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
 
-//  trafficSimulation
-export type TSimulationTrafficConfig = z.infer<typeof simulationTrafficConfigSchema>;
+//  Load Simulation
+export type TLoadSimulationConfig = z.infer<typeof loadSimulationConfigSchema>;
+export type TSimulationServiceVersionMetric = z.infer<typeof simulationServiceVersionMetricSchema>;
+export type TSimulationServiceMetric = z.infer<typeof simulationServiceMetricSchema>;
 export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
 export type TLoadSimulation = z.infer<typeof loadSimulationSchema>;
+
+
 export type TSimulationConfigYAML = z.infer<typeof simulationConfigYAMLSchema>;
 
 
 
 /**** Simulation config related type ****/
 export type TSimulationConfigErrors = {
-  location: string;   // Description of where the error occurred
+  errorLocation: string;   // Description of where the error occurred
   message: string;
 }
 export type TSimulationConfigProcessResult = {

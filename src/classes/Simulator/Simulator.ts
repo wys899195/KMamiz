@@ -69,7 +69,7 @@ export default class Simulator {
       simulateDate
     );
 
-    const { dependOnMap, dependByMap, endpointDependencies } =
+    const { dependOnMap, endpointDependencies } =
       DependencyGraphSimulator.getInstance().buildEndpointDependenciesAndDependOnMap(
         parsedConfig,
         simulateDate
@@ -82,7 +82,6 @@ export default class Simulator {
         LoadSimulationHandler.getInstance().generateHourlyCombinedRealtimeDataMap(
           parsedConfig.loadSimulation,
           dependOnMap,
-          dependByMap,
           replicaCountList,
           EndpointRealTimeBaseDatas,
           simulateDate

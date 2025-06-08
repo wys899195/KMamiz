@@ -36,7 +36,7 @@ export default class SimulationService extends IRequestHandler {
             return res.status(400).json({ graph: result.graph, message: result.errorMessage });
           }
         } catch (err) {
-          return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
+          return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n---\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
         }
       }
     );
@@ -91,11 +91,11 @@ export default class SimulationService extends IRequestHandler {
                 });
                 return res.status(200).json({ message: "ok" });
               } catch (err) {
-                return res.status(500).json({ message: `Error while caching and creating historical and aggregated data:\n${err instanceof Error ? err.message : err}` });
+                return res.status(500).json({ message: `Error while caching and creating historical and aggregated data:\n---\n${err instanceof Error ? err.message : err}` });
               }
             }
           } catch (err) {
-            return res.status(500).json({ graph: null, message: `Error simulate retrive data by YAML:\n${err instanceof Error ? err.message : err}` });
+            return res.status(500).json({ graph: null, message: `Error simulate retrive data by YAML:\n---\n${err instanceof Error ? err.message : err}` });
           }
         }
 

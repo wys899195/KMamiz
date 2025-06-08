@@ -22,59 +22,86 @@ export default class SimConfigValidator {
 
       const formatValidationResult = simulationConfigYAMLSchema.safeParse(parsedYAML);
       if (formatValidationResult.success) {
-        const validationErrorsInParsedYaml = this.validateParsedYaml(parsedYAML);
-        if (validationErrorsInParsedYaml.length > 0) {
+        const parsedZodResult: TSimulationConfigYAML = formatValidationResult.data;
+        const errorMessageDetails = this.validateParsedYaml(parsedZodResult);
+        if (errorMessageDetails.length > 0) {
           return {
-            errorMessage: validationErrorsInParsedYaml.map(e => `• Error at ${e.location}: ${e.message}`).join("\n"),
+            errorMessage: [
+              "Failed to parse and validate YAML:",
+              ...errorMessageDetails.map(e => `At ${e.errorLocation}: ${e.message}`)
+            ].join("\n---\n"),
             parsedConfig: null,
           };
+        } else {
+          console.log("parsedZodResult (as YAML):\n", yaml.dump(parsedZodResult));
+          console.log("parsedZodResult = ", JSON.stringify(parsedZodResult, null, 2))
+          return {
+            errorMessage: "",
+            parsedConfig: parsedZodResult, // ok
+          };
         }
-        return {
-          errorMessage: "",
-          parsedConfig: parsedYAML,
-        };
-      } else {
-        const formatErrorMessage = formatValidationResult.error.errors
-          .map((err) => `• ${err.path.join(".")}: ${err.message}`)
-          .join("\n");
 
+      } else {
         return {
-          errorMessage: "YAML format error:\n" + formatErrorMessage,
+          errorMessage: [
+            "Failed to parse and validate YAML:",
+            ...formatValidationResult.error.errors.map((e) => {
+              const errorLocation = e.path.join(".");
+              return errorLocation
+                ? `At ${errorLocation}: ${e.message}`
+                : e.message;
+            })
+          ].join("\n---\n"),
           parsedConfig: null,
         };
       }
     } catch (e) {
       return {
-        errorMessage: `An error occurred while parsing and validating the YAML: \n\n${e instanceof Error ? e.message : e}`,
+        errorMessage: `Failed to parse and validate YAML:\n---\n${e instanceof Error ? e.message : e}`,
         parsedConfig: null,
       };
     }
   }
 
   private validateParsedYaml(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
-    let errorMessage: TSimulationConfigErrors[] = [];
+    // Validate and assign unique service IDs
+    // This step generates unique identifiers for each service and checks for duplicate service names.
+    const serviceIdErrors = this.validateAndAssignServiceIds(parsedYAML);
+    if (serviceIdErrors.length) return serviceIdErrors;
 
-    // check for duplicate service and genegate uniqueServiceName
-    errorMessage = this.validateAndAssignServiceIds(parsedYAML);
-    if (errorMessage.length) return errorMessage;
-
-    // check for duplicate endpointIds and collect endpointId set
+    // Check for duplicate endpoint IDs and collect all defined endpoint IDs
+    // These collected IDs will be used for subsequent validation steps.
     const { endpointIdValidationErrors, allDefinedEndpointIds } = this.validateEndpointIds(parsedYAML);
-    errorMessage = endpointIdValidationErrors;
-    if (errorMessage.length) return errorMessage;
+    if (endpointIdValidationErrors.length) return endpointIdValidationErrors;
 
-    // Validate endpointDependencies settings
-    errorMessage = this.validateEndpointDependencies(parsedYAML, allDefinedEndpointIds);
-    if (errorMessage.length) return errorMessage;
+    // Validate endpoint dependencies
+    // Ensures that all referenced endpoints exist and dependencies are correctly defined.
+    const dependencyErrors = this.validateEndpointDependencies(parsedYAML, allDefinedEndpointIds);
+    if (dependencyErrors.length) return dependencyErrors;
 
     // Validate LoadSimulation settings
-    errorMessage = this.validateLoadSimulation(parsedYAML, allDefinedEndpointIds);
-    if (errorMessage.length) return errorMessage;
+    // Includes checking service metrics to verify services exist and no duplicates,
+    // and validating endpoint metrics for correct endpoint references and duplicates.
+    const serviceMetricErrors = this.validateServiceMetrics(parsedYAML);
+    const endpointMetricErrors = this.validateEndpointMetrics(parsedYAML, allDefinedEndpointIds);
 
-    // convert all user defined endpoint id
-    errorMessage = this.convertEndpointIdsToUniqueEndpointNames(parsedYAML);
-    if (errorMessage.length) return errorMessage;
+    const loadSimulationErrors = [
+      ...serviceMetricErrors,
+      ...endpointMetricErrors,
+    ];
 
+    if (loadSimulationErrors.length) return loadSimulationErrors;
+
+    // Assign serviceId to loadSimulation.serviceMetrics' versions based on servicesInfo
+    const serviceMetricIdsErrors = this.assignServiceIdsToMetrics(parsedYAML);
+    if (serviceMetricIdsErrors.length) return dependencyErrors;
+
+    // Convert all user-defined endpoint IDs to unique endpoint names
+    // This prevents conflicts in subsequent processing stages.
+    const conversionErrors = this.convertEndpointIdsToUniqueEndpointNames(parsedYAML);
+    if (conversionErrors.length) return conversionErrors;
+
+    // If no errors found, return an empty array.
     return [];
   }
 
@@ -86,13 +113,12 @@ export default class SimConfigValidator {
       namespace.services.forEach(service =>
         service.versions.forEach(version => {
           // Generate serviceId
-          version.version = String(version.version).trim();
           const serviceId = `${service.serviceName}\t${namespace.namespace}\t${version.version}`;
 
           // Check for duplicates
           if (existingServiceId.has(serviceId)) {
             errorMessages.push({
-              location: `servicesInfo > namespace: ${namespace.namespace} > serviceName: ${service.serviceName} > version: ${version.version}`,
+              errorLocation: `servicesInfo > namespace: ${namespace.namespace} > serviceName: ${service.serviceName} > version: ${version.version}`,
               message: `Duplicate service found.`
             });
           } else {
@@ -116,10 +142,9 @@ export default class SimConfigValidator {
       ns.services.forEach(svc =>
         svc.versions.forEach(ver =>
           ver.endpoints.forEach(ep => {
-            ep.endpointId = String(ep.endpointId).trim();
             if (allDefinedEndpointIds.has(ep.endpointId)) {
               errors.push({
-                location: `servicesInfo > namespace: ${ns.namespace} > serviceName: ${svc.serviceName} > version: ${ver.version} > endpointId: ${ep.endpointId}`,
+                errorLocation: `servicesInfo > namespace: ${ns.namespace} > serviceName: ${svc.serviceName} > version: ${ver.version} > endpointId: ${ep.endpointId}`,
                 message: `Duplicate endpointId found.`
               });
             } else {
@@ -144,39 +169,37 @@ export default class SimConfigValidator {
     const errorMessages: TSimulationConfigErrors[] = [];
     const seenSourceEndpointIds = new Set<string>();
     parsedYAML.endpointDependencies?.forEach((dep, index) => {
-      dep.endpointId = String(dep.endpointId).trim();
-      const location = `endpointDependencies[${index}]`;
+      const errorLocation = `endpointDependencies[${index}]`;
       if (!allDefinedEndpointIds.has(dep.endpointId)) {
         errorMessages.push({
-          location,
+          errorLocation: errorLocation,
           message: `Source endpointId "${dep.endpointId}" is not defined in servicesInfo.`,
         });
       }
       dep.dependOn.forEach((d, subIndex) => {
-        d.endpointId = String(d.endpointId).trim();
-        const subLocation = `${location}.dependOn[${subIndex}]`;
+        const subLocation = `${errorLocation}.dependOn[${subIndex}]`;
         if (!allDefinedEndpointIds.has(d.endpointId)) {
           errorMessages.push({
-            location: subLocation,
+            errorLocation: subLocation,
             message: `Target endpointId "${d.endpointId}" is not defined in servicesInfo.`,
           });
         }
 
         if (d.endpointId === dep.endpointId) {
           errorMessages.push({
-            location: subLocation,
+            errorLocation: subLocation,
             message: `Endpoint cannot depend on itself ("${dep.endpointId}").`,
           });
         }
       });
     });
     parsedYAML.endpointDependencies?.forEach((dep, index) => {
-      const sourceId = String(dep.endpointId).trim();
-      const location = `endpointDependencies[${index}]`;
+      const sourceId = dep.endpointId;
+      const errorLocation = `endpointDependencies[${index}]`;
 
       if (seenSourceEndpointIds.has(sourceId)) {
         errorMessages.push({
-          location: location,
+          errorLocation: errorLocation,
           message: `Duplicate source endpointId "${sourceId}" found.`,
         });
       } else {
@@ -187,32 +210,114 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private validateLoadSimulation(parsedYAML: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
+  private validateServiceMetrics(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
-    const seenEndpointIds = new Set<string>();
 
+    // service metric
+    const definedServiceVersions = new Set<string>();
+    parsedYAML.servicesInfo.forEach(ns => {
+      ns.services.forEach(svc => {
+        svc.versions.forEach(ver => {
+          const key = `${svc.serviceName}\t${ver.version}`;
+          definedServiceVersions.add(key);
+        });
+      });
+    });
+
+    parsedYAML.loadSimulation?.serviceMetrics.forEach((metric, index) => {
+      const errorLocation = `loadSimulation.serviceMetrics[${index}]`;
+      metric.versions.forEach((ver, verIndex) => {
+        const versionLocation = `${errorLocation}.versions[${verIndex}]`;
+        const serviceVersionKey = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
+
+        if (!definedServiceVersions.has(serviceVersionKey)) {
+          errorMessages.push({
+            errorLocation: versionLocation,
+            message: `serviceName "${metric.serviceName}" with version "${ver.version}" is not defined in servicesInfo.`,
+          });
+        }
+      });
+    });
+
+    const seenServiceVersions = new Set<string>();
+    parsedYAML.loadSimulation?.serviceMetrics.forEach((metric, index) => {
+      const errorLocation = `loadSimulation.serviceMetrics[${index}]`;
+      metric.versions.forEach((ver, verIndex) => {
+        const versionLocation = `${errorLocation}.versions[${verIndex}]`;
+        const serviceVersionKey = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
+
+        if (seenServiceVersions.has(serviceVersionKey)) {
+          errorMessages.push({
+            errorLocation: versionLocation,
+            message: `Duplicate serviceName "${metric.serviceName}" with version "${ver.version}" found in serviceMetrics.`,
+          });
+        } else {
+          seenServiceVersions.add(serviceVersionKey);
+        }
+      });
+    });
+
+    return errorMessages;
+  }
+
+  private validateEndpointMetrics(parsedYAML: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
+    const errorMessages: TSimulationConfigErrors[] = [];
+
+    // endpoint metric
+    const seenEndpointIds = new Set<string>();
     parsedYAML.loadSimulation?.endpointMetrics.forEach((m, index) => {
-      const endpointMetricId = String(m.endpointId).trim();
-      const location = `loadSimulation.endpointMetrics[${index}]`;
-      if (!allDefinedEndpointIds.has(endpointMetricId)) {
+      const errorLocation = `loadSimulation.endpointMetrics[${index}]`;
+      if (!allDefinedEndpointIds.has(m.endpointId)) {
         errorMessages.push({
-          location,
-          message: `EndpointId "${endpointMetricId}" is not defined in servicesInfo.`,
+          errorLocation: errorLocation,
+          message: `EndpointId "${m.endpointId}" is not defined in servicesInfo.`,
         });
       }
     });
 
     parsedYAML.loadSimulation?.endpointMetrics.forEach((m, index) => {
-      const endpointMetricId = String(m.endpointId).trim();
-      const location = `loadSimulation.endpointMetrics[${index}]`;
-      if (seenEndpointIds.has(endpointMetricId)) {
+      const errorLocation = `loadSimulation.endpointMetrics[${index}]`;
+      if (seenEndpointIds.has(m.endpointId)) {
         errorMessages.push({
-          location,
-          message: `Duplicate endpointId "${endpointMetricId}" found in endpointMetrics.`,
+          errorLocation: errorLocation,
+          message: `Duplicate endpointId "${m.endpointId}" found in endpointMetrics.`,
         });
       } else {
-        seenEndpointIds.add(endpointMetricId);
+        seenEndpointIds.add(m.endpointId);
       }
+    });
+
+    return errorMessages;
+  }
+
+  private assignServiceIdsToMetrics(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
+    const errorMessages: TSimulationConfigErrors[] = [];
+    const serviceVersionToIdMap = new Map<string, string>();
+
+    parsedYAML.servicesInfo.forEach(ns => {
+      ns.services.forEach(svc => {
+        svc.versions.forEach(ver => {
+          const key = `${svc.serviceName.trim()}\t${ver.version.trim()}`;
+          serviceVersionToIdMap.set(key, ver.serviceId!);
+        });
+      });
+    });
+
+    parsedYAML.loadSimulation?.serviceMetrics.forEach((metric, metricIndex) => {
+      metric.versions.forEach((ver, verIndex) => {
+        const key = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
+        const matchedServiceId = serviceVersionToIdMap.get(key);
+        const errorLocation = `loadSimulation.serviceMetrics[${metricIndex}].versions[${verIndex}].serviceId`;
+
+        if (matchedServiceId) {
+          ver.serviceId = matchedServiceId;
+        } else {
+          errorMessages.push({
+            errorLocation: errorLocation,
+            message: `Cannot map serviceId for serviceName="${metric.serviceName}" and version="${ver.version}".`,
+          });
+        }
+      });
     });
 
     return errorMessages;
@@ -257,7 +362,7 @@ export default class SimConfigValidator {
       } else {
         // This error should not occur if earlier validation is correctly implemented, but included as a safeguard
         errorMessages.push({
-          location: sourceLocation,
+          errorLocation: sourceLocation,
           message: `Cannot map source endpointId "${originalSourceId}".`
         });
       }
@@ -270,7 +375,7 @@ export default class SimConfigValidator {
           d.endpointId = mappedTargetId;
         } else {
           errorMessages.push({
-            location: targetLocation,
+            errorLocation: targetLocation,
             message: `Cannot map target endpointId "${originalTargetId}".`
           });
         }
@@ -280,13 +385,13 @@ export default class SimConfigValidator {
     parsedYAML.loadSimulation?.endpointMetrics.forEach((metric, index) => {
       const originalId = metric.endpointId;
       const mappedId = endpointIdToUniqueNameMap.get(originalId);
-      const location = `loadSimulation.endpointMetrics[${index}].endpointId`;
+      const errorLocation = `loadSimulation.endpointMetrics[${index}].endpointId`;
 
       if (mappedId) {
         metric.endpointId = mappedId;
       } else {
         errorMessages.push({
-          location,
+          errorLocation: errorLocation,
           message: `Cannot map endpointId "${originalId}".`
         });
       }
