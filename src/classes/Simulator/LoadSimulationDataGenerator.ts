@@ -3,7 +3,7 @@ import {
 } from "../../entities/TCombinedRealtimeData";
 import {
   TBaseDataWithResponses,
-  TTrafficSimulationResult,
+  TEndpointTrafficStats,
 } from "../../entities/TLoadSimulation";
 import Utils from "../../utils/Utils";
 
@@ -12,62 +12,62 @@ export default class LoadSimulationDataGenerator {
 
   generateRealtimeDataFromSimulationResults(
     baseDataMap: Map<string, TBaseDataWithResponses>,
-    trafficPropagationResults: TTrafficSimulationResult,
+    trafficPropagationResults: Map<string, Map<string, TEndpointTrafficStats>>,
     simulateDate: number
   ): Map<string, TCombinedRealtimeData[]> {
     const realtimeDataPerMinute = new Map<string, TCombinedRealtimeData[]>(); // key: "day-hour-minute"
 
-    for (const [day, dailyStats] of trafficPropagationResults.entries()) {
+    for (const [dayHourMinuteKey, minuteStats] of trafficPropagationResults.entries()) {
+      // timestamp
+      const [dayStr, hourStr, minuteStr] = dayHourMinuteKey.split('-');
+      const day = parseInt(dayStr);
+      const hour = parseInt(hourStr);
+      const minute = parseInt(minuteStr);
       const dayMillis = simulateDate + day * 86400_000;
+      const hourMillis = dayMillis + hour * 3600_000;
+      const timestampMicro = (hourMillis + minute * 60_000) * 1000;
 
-      for (const [hour, hourlyStats] of dailyStats.entries()) {
-        const hourMillis = dayMillis + hour * 3600_000;
 
-        for (const [minute, minuteStats] of hourlyStats.entries()) {
-          const timestampMicro = (hourMillis + minute * 60_000) * 1000;
-          const combinedList: TCombinedRealtimeData[] = [];
+      const combinedList: TCombinedRealtimeData[] = [];
+      for (const [endpointId, stats] of minuteStats.entries()) {
+        const baseDataWithResp = baseDataMap.get(endpointId);
+        if (!baseDataWithResp) continue;
 
-          for (const [endpointId, stats] of minuteStats.entries()) {
-            const baseDataWithResp = baseDataMap.get(endpointId);
-            if (!baseDataWithResp) continue;
+        const { baseData, responses } = baseDataWithResp;
+        const successCount = stats.requestCount - stats.errorCount;
+        const errorCount = stats.errorCount;
 
-            const { baseData, responses } = baseDataWithResp;
-            const successCount = stats.requestCount - stats.errorCount;
-            const errorCount = stats.errorCount;
+        if (successCount > 0) {
+          const resp2xx = responses?.find(r => r.status.startsWith("2"));
+          combinedList.push({
+            ...baseData,
+            latestTimestamp: timestampMicro,
+            requestSchema: undefined,
+            responseSchema: undefined,
+            responseBody: resp2xx?.responseBody,
+            responseContentType: resp2xx?.responseContentType,
+            combined: successCount,
+            status: resp2xx?.status ?? "200",
+            latency: this.computeLatencyCV(stats.maxLatency, successCount),
+          });
+        }
 
-            if (successCount > 0) {
-              const resp2xx = responses?.find(r => r.status.startsWith("2"));
-              combinedList.push({
-                ...baseData,
-                latestTimestamp: timestampMicro,
-                responseBody: resp2xx?.responseBody,
-                responseContentType: resp2xx?.responseContentType,
-                requestSchema: undefined,
-                responseSchema: undefined,
-                combined: successCount,
-                status: resp2xx?.status ?? "200",
-                latency: this.computeLatencyCV(stats.maxLatency, successCount),
-              });
-            }
-
-            if (errorCount > 0) {
-              const resp5xx = responses?.find(r => r.status.startsWith("5"));
-              combinedList.push({
-                ...baseData,
-                latestTimestamp: timestampMicro,
-                responseBody: resp5xx?.responseBody,
-                responseContentType: resp5xx?.responseContentType,
-                requestSchema: undefined,
-                responseSchema: undefined,
-                combined: errorCount,
-                status: resp5xx?.status ?? "500",
-                latency: this.computeLatencyCV(stats.maxLatency, errorCount),
-              });
-            }
-          }
-          realtimeDataPerMinute.set(`${day}-${hour}-${minute}`, combinedList);
+        if (errorCount > 0) {
+          const resp5xx = responses?.find(r => r.status.startsWith("5"));
+          combinedList.push({
+            ...baseData,
+            latestTimestamp: timestampMicro,
+            requestSchema: undefined,
+            responseSchema: undefined,
+            responseBody: resp5xx?.responseBody,
+            responseContentType: resp5xx?.responseContentType,
+            combined: errorCount,
+            status: resp5xx?.status ?? "500",
+            latency: this.computeLatencyCV(stats.maxLatency, errorCount),
+          });
         }
       }
+      realtimeDataPerMinute.set(dayHourMinuteKey, combinedList);
     }
     return realtimeDataPerMinute;
   }

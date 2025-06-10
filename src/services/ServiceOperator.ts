@@ -86,7 +86,7 @@ export default class ServiceOperator {
       dataType.map((dt) => new EndpointDataType(dt))
     );
   }
-  
+
   private getDataForAggregate() {
     const combinedRealtimeData = DataCache.getInstance()
       .get<CCombinedRealtimeData>("CombinedRealtimeData")
@@ -359,22 +359,23 @@ export default class ServiceOperator {
   }
 
   async updateDynamicSimulateData(data: {
-    realtimeDataPerHourMap: Map<string, TCombinedRealtimeData[]>
+    realtimeDataMap: Map<string, TCombinedRealtimeData[]>
   }) {
-    const sortedEntries = [...data.realtimeDataPerHourMap.entries()].sort(
+    const sortedEntries = [...data.realtimeDataMap.entries()].sort(
       ([a], [b]) => {
-        const [dayA, hourA] = a.split("-").map(Number);
-        const [dayB, hourB] = b.split("-").map(Number);
+        const [dayA, hourA, minuteA] = a.split("-").map(Number);
+        const [dayB, hourB, minuteB] = b.split("-").map(Number);
         if (dayA !== dayB) return dayA - dayB;
-        return hourA - hourB;
+        if (hourA !== hourB) return hourA - hourB;
+        return minuteA - minuteB;
       }
     );
-    for (const [ _ , hourlyCombinedDataList] of sortedEntries) {
+    for (const [_, combinedDataList] of sortedEntries) {
       // console.log(`hourlyCombinedDataList ${key}: ${JSON.stringify(hourlyCombinedDataList,null,2)}`)
-      if (hourlyCombinedDataList.length > 0) {
+      if (combinedDataList.length > 0) {
         DataCache.getInstance()
           .get<CCombinedRealtimeData>("CombinedRealtimeData")
-          .setData(new CombinedRealtimeDataList(hourlyCombinedDataList));
+          .setData(new CombinedRealtimeDataList(combinedDataList));
         await this.createHistoricalAndAggregatedDataSimulate();
       }
     }

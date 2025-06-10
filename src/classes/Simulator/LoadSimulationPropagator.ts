@@ -1,18 +1,28 @@
 import {
-  TTrafficSimulationResult,
+  TEndpointTrafficStats,
 } from "../../entities/TLoadSimulation";
 
 export default class LoadSimulationPropagator {
 
   simulatePropagationWithBaseErrorRates(
     dependOnMap: Map<string, Set<string>>,
-    minutelyRequestCountsForEachDayMap: Map<string, number[][][]>,
+    endpointDailyRequestCountsMap: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>
-  ): TTrafficSimulationResult {
+  ): Map<string, Map<string, TEndpointTrafficStats>> {
+    console.log("dependOnMap", dependOnMap);
+    console.log("endpointDailyRequestCountsMap", endpointDailyRequestCountsMap);
+    console.log("latencyMap", latencyMap);
+    console.log("errorRateMap", errorRateMap);
+    console.log("resuit", this.simulatePropagation(
+      dependOnMap,
+      endpointDailyRequestCountsMap,
+      latencyMap,
+      () => errorRateMap
+    ))
     return this.simulatePropagation(
       dependOnMap,
-      minutelyRequestCountsForEachDayMap,
+      endpointDailyRequestCountsMap,
       latencyMap,
       () => errorRateMap
     );
@@ -20,78 +30,81 @@ export default class LoadSimulationPropagator {
 
   simulatePropagationWithAdjustedErrorRates(
     dependOnMap: Map<string, Set<string>>,
-    minutelyRequestCountsForEachDayMap: Map<string, number[][][]>,
+    endpointDailyRequestCountsMap: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
     adjustedErrorRatePerMinute: Map<string, Map<string, number>>
-  ): TTrafficSimulationResult {
+  ): Map<string, Map<string, TEndpointTrafficStats>> {
     return this.simulatePropagation(
       dependOnMap,
-      minutelyRequestCountsForEachDayMap,
+      endpointDailyRequestCountsMap,
       latencyMap,
-      (day, hour, minute) => {
-        const key = `${day}-${hour}-${minute}`;
-        return adjustedErrorRatePerMinute.get(key) || new Map<string, number>();
+      (dayHourMinuteKey) => {
+        return adjustedErrorRatePerMinute.get(dayHourMinuteKey) || new Map<string, number>();
       }
     );
   }
 
   private simulatePropagation(
     dependOnMap: Map<string, Set<string>>,
-    minutelyRequestCountsForEachDayMap: Map<string, number[][][]>,
+    endpointDailyRequestCountsMap: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
-    getErrorRateMap: (day: number, hour: number, minute: number) => Map<string, number>
-  ): TTrafficSimulationResult {
+    getErrorRateMap: (dayHourMinuteKey: string) => Map<string, number>        //  key = `${day}-${hour}-${minute}`
+  ): Map<string, Map<string, TEndpointTrafficStats>> {
+    /*
+     * Returns a Map representing aggregated traffic simulation results per minute.
+     *
+     * Top-level Map:
+     * Key:   string - A timestamp key in "day-hour-minute" format (e.g., "0-10-30").
+     * Value: Map<string, TEndpointTrafficStats> - Details for all endpoints active during this minute.
+     *
+     * Inner Map (Value of Top-level Map):
+     * Key:   string - The unique ID of a target endpoint (endpointId).
+     * Value: TEndpointTrafficStats
+     */
+    const results: Map<string, Map<string, TEndpointTrafficStats>> = new Map();
 
-    const results: TTrafficSimulationResult = new Map();
+    // Iterate through each entry point (entryPointId) configured in the simulation configuration.
+    for (const [entryPointId, dailyCounts] of endpointDailyRequestCountsMap.entries()) {
+      // dailyCounts is a Map<"day-hour-minute", count>.
+      // Iterate through the request counts for this entry point across all time slots (dayHourMinuteKey).
+      for (const [dayHourMinuteKey, count] of dailyCounts.entries()) {
+        if (count <= 0) continue; // Skip if no requests for this time slot
 
-    for (const [entryPointId, dailyCounts] of minutelyRequestCountsForEachDayMap.entries()) {
-      for (let day = 0; day < dailyCounts.length; day++) {
-        const hourlyCounts = dailyCounts[day];
-        for (let hour = 0; hour < 24; hour++) {
-          const minuteCounts = hourlyCounts[hour];
-          for (let minute = 0; minute < 60; minute++) {
-            const count = minuteCounts[minute];
-            if (count <= 0) continue;
+        // Get the error rate map for all endpoints at this specific time slot.
+        const errorRateMap = getErrorRateMap(dayHourMinuteKey);
 
-            const errorRateMap = getErrorRateMap(day, hour, minute);
+        // Simulate traffic propagation starting from this entry point,
+        // and get the statistics for all affected endpoints.
+        const { stats } = this.simulatePropagationFromSingleEntrySingleTimeSlot(
+          entryPointId,
+          count,
+          dependOnMap,
+          latencyMap,
+          errorRateMap
+        );
 
-            const { stats } = this.simulatePropagationFromSingleEntry(
-              entryPointId,
-              count,
-              dependOnMap,
-              latencyMap,
-              errorRateMap
-            );
 
-            if (!results.has(day)) {
-              results.set(day, new Map());
-            }
-            const dailyStats = results.get(day)!;
+        if (!results.has(dayHourMinuteKey)) {
+          results.set(dayHourMinuteKey, new Map());
+        }
+        const endpointStatsMapInspecificTime = results.get(dayHourMinuteKey)!;
 
-            if (!dailyStats.has(hour)) {
-              dailyStats.set(hour, new Map());
-            }
-            const hourlyStats = dailyStats.get(hour)!;
+        // Iterate through the 'stats' returned by simulatePropagationFromSingleEntrySingleTimeSlot.
+        // (stats represents the traffic propagation result for a single entry point within a single time slot).
+        // Accumulate the total request count, error count, and maximum latency for each endpoint in 'stats'.
+        for (const [targetEndpointId, stat] of stats.entries()) {
 
-            if (!hourlyStats.has(minute)) {
-              hourlyStats.set(minute, new Map());
-            }
-            const minuteStats = hourlyStats.get(minute)!;
-
-            for (const [targetEndpointId, stat] of stats.entries()) {
-              if (!minuteStats.has(targetEndpointId)) {
-                minuteStats.set(targetEndpointId, {
-                  requestCount: 0,
-                  errorCount: 0,
-                  maxLatency: 0
-                });
-              }
-              const existingStats = minuteStats.get(targetEndpointId)!;
-              existingStats.requestCount += stat.requestCount;
-              existingStats.errorCount += stat.errorCount;
-              existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
-            }
+          if (!endpointStatsMapInspecificTime.has(targetEndpointId)) {
+            endpointStatsMapInspecificTime.set(targetEndpointId, {
+              requestCount: 0,
+              errorCount: 0,
+              maxLatency: 0
+            });
           }
+          const existingStats = endpointStatsMapInspecificTime.get(targetEndpointId)!;
+          existingStats.requestCount += stat.requestCount;
+          existingStats.errorCount += stat.errorCount;
+          existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
         }
       }
     }
@@ -99,7 +112,8 @@ export default class LoadSimulationPropagator {
     return results;
   }
 
-  private simulatePropagationFromSingleEntry(
+  // this function will return the traffic propagation result for a single entry point within a single time slot
+  private simulatePropagationFromSingleEntrySingleTimeSlot(
     entryPointId: string,
     initialRequestCount: number,
     dependOnMap: Map<string, Set<string>>,
