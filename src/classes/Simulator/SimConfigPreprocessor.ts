@@ -8,8 +8,6 @@ import {
 
 export default class SimConfigPreprocessor {
 
-
-
   preprocessEndpointDataTypeInYaml(parsedConfig: TSimulationConfigYAML): TSimulationConfigProcessResult {
     let errorMessageDetails: TSimulationConfigErrors[] = [];
     try {

@@ -1,7 +1,8 @@
 import {
   TSimulationServiceMetric,
   TSimulationEndpointMetric,
-  TLoadSimulation
+  TLoadSimulation,
+  TLoadSimulationConfig
 } from "../../entities/TSimulationConfig";
 import {
   TBaseDataWithResponses,
@@ -14,18 +15,12 @@ import LoadSimulationDataGenerator from "./LoadSimulationDataGenerator";
 import LoadSimulationPropagator from "./LoadSimulationPropagator";
 
 
-type TMinimumIntervalMinutes = 1 | 2 | 3 | 5 | 6 | 10 | 12 | 15 | 20 | 30 | 60;
-
 export default class LoadSimulationHandler {
   private static instance?: LoadSimulationHandler;
   static getInstance = () => this.instance || (this.instance = new this());
 
   private dataGenerator: LoadSimulationDataGenerator;
   private propagator: LoadSimulationPropagator;
-
-  // Minimum time interval length in minutes (must be a divisor of 60).
-  // For example, if set to 5, data will be generated every 5 minutes.
-  private static readonly MINIMUM_INTERVAL_MINUTES: TMinimumIntervalMinutes = 60
 
   private constructor() {
     this.dataGenerator = new LoadSimulationDataGenerator();
@@ -41,12 +36,11 @@ export default class LoadSimulationHandler {
   ): Map<string, TCombinedRealtimeData[]> {
     const serviceMetrics: TSimulationServiceMetric[] = loadSimulationSettings.serviceMetrics;
     const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
-    const simulationDurationInDays = loadSimulationSettings.config?.simulationDurationInDays ?? 1;
     const {
       entryEndpointDailyRequestCountsMap,   // Key: endpointId, Value: Map where Key is "day-hour-minute" and Value is request count
       latencyMap,                           // Key: endpointId, Value: Latency in milliseconds (>= 0)
       errorRateMap: basicErrorRateMap       // Key: endpointId, Value: Error rate (in [0,1], i.e., percentage / 100)
-    } = this.getTrafficMap(endpointMetrics, simulationDurationInDays);
+    } = this.getTrafficMap(endpointMetrics, loadSimulationSettings.config);
 
     // Use the basic error rate to simulate traffic propagation and calculate the 
     // expected incoming traffic for each service under normal (non-overloaded) conditions
@@ -88,7 +82,7 @@ export default class LoadSimulationHandler {
 
   private getTrafficMap(
     endpointMetrics: TSimulationEndpointMetric[],
-    simulationDurationInDays: number,
+    loadSimulationConfig?: TLoadSimulationConfig
   ): {
     // Key: endpointId of entry point(in simulation config), Value: Map where Key is "day-hour-minute" and Value is request count
     entryEndpointDailyRequestCountsMap: Map<string, Map<string, number>>;
@@ -103,8 +97,11 @@ export default class LoadSimulationHandler {
       return { entryEndpointDailyRequestCountsMap, latencyMap, errorRateMap };
     }
 
-    const SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
-    const PROBABILITY_OF_MUTATION = 0.3;
+    const simulationDurationInDays = loadSimulationConfig?.simulationDurationInDays ?? 1;
+    const timeSliceMinutes = loadSimulationConfig?.timeSliceMinutes ?? 5;
+    const mutationRatePercentage = loadSimulationConfig?.mutationRatePercentage ?? 25;
+    const MUTATION_SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
+    const probabilityOfMutation = mutationRatePercentage / 100;
 
 
     for (const metric of endpointMetrics) {
@@ -130,16 +127,16 @@ export default class LoadSimulationHandler {
 
 
       for (let day = 0; day < simulationDurationInDays; day++) {
-        const isMutated = Math.random() < PROBABILITY_OF_MUTATION;
+        const isMutated = Math.random() < probabilityOfMutation;
         const mutationScaleRate = isMutated
-          ? SCALE_FACTORS[Math.floor(Math.random() * SCALE_FACTORS.length)]
+          ? MUTATION_SCALE_FACTORS[Math.floor(Math.random() * MUTATION_SCALE_FACTORS.length)]
           : 1;
 
         const realRequestCountForThisday = Math.round(
           baseDailyRequestCount * mutationScaleRate
         );
 
-        this.updateRequestCountsMap(RequestCountsMap, day, realRequestCountForThisday);
+        this.updateRequestCountsMap(RequestCountsMap, day, realRequestCountForThisday, timeSliceMinutes);
       }
 
       entryEndpointDailyRequestCountsMap.set(endpointId, RequestCountsMap);
@@ -252,10 +249,17 @@ export default class LoadSimulationHandler {
   private updateRequestCountsMap(
     RequestCountsMap: Map<string, number>,
     day: number,
-    realRequestCountForThisDay: number
+    realRequestCountForThisDay: number,
+    timeSliceMinutes: number,
   ) {
+
+    /*
+      timeSliceMinutes: 
+        Minimum time interval length in minutes (must be a divisor of 60).For example,
+        if set to 5, data will be generated every 5 minutes.
+    */
     const hours = 24;
-    const intervalsPerHour = 60 / LoadSimulationHandler.MINIMUM_INTERVAL_MINUTES;
+    const intervalsPerHour = 60 / timeSliceMinutes;
     const totalIntervals = hours * intervalsPerHour;
 
     if (realRequestCountForThisDay === 0) {
@@ -305,7 +309,7 @@ export default class LoadSimulationHandler {
         const hour = Math.floor(intervalIndex / intervalsPerHour);
         // Calculate minutes based on the minimum time interval
         // For example, if the interval is 10 minutes, then minute 19 falls into the 10-minute slot representing 10–19 minutes.
-        const minute = (intervalIndex % intervalsPerHour) * LoadSimulationHandler.MINIMUM_INTERVAL_MINUTES;
+        const minute = (intervalIndex % intervalsPerHour) * timeSliceMinutes;
 
         // Create key in the format "day-hour-minute"
         const key = `${day}-${hour}-${minute}`;

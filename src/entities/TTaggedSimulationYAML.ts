@@ -5,5 +5,4 @@ export type TTaggedSimulationYAML = {
   tag?: string;
   time?: number;
   yaml: string;
-
 };
