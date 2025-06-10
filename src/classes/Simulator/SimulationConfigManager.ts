@@ -24,12 +24,18 @@ export default class SimulationConfigManager {
     // Parse and validate the YAML structure
     const validationResult = this.validator.parseAndValidateRawYAML(yamlString);
     if (validationResult.errorMessage || !validationResult.parsedConfig) {
-      return validationResult; // Return early if format validation failed
+      return validationResult; // Return early if failed
     }
 
     // preprocessing endpoint data types
     const epDatatypePreprocessResult = this.preprocessor.preprocessEndpointDataTypeInYaml(validationResult.parsedConfig);
-    return epDatatypePreprocessResult;
+    if (epDatatypePreprocessResult.errorMessage || !epDatatypePreprocessResult.parsedConfig) {
+      return epDatatypePreprocessResult; // Return early if failed
+    }
+
+    // Add default metrics for any endpoints missing metrics in the parsed YAML config
+    const addDefaultMetricsResult = this.preprocessor.addDefaultMetricsForMissingEndpointsInPlace(validationResult.parsedConfig);
+    return addDefaultMetricsResult;
   }
 
   generateStaticSimConfig(): string {

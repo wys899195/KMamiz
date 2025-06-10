@@ -19,9 +19,9 @@ export default class SimConfigValidator {
       };
     }
     try {
-      const parsedYAML = yaml.load(yamlString) as TSimulationConfigYAML;
+      const parsedConfig = yaml.load(yamlString) as TSimulationConfigYAML;
 
-      const formatValidationResult = simulationConfigYAMLSchema.safeParse(parsedYAML);
+      const formatValidationResult = simulationConfigYAMLSchema.safeParse(parsedConfig);
       if (formatValidationResult.success) {
         const parsedZodResult: TSimulationConfigYAML = formatValidationResult.data;
         const errorMessageDetails = this.validateParsedYaml(parsedZodResult);
@@ -34,8 +34,8 @@ export default class SimConfigValidator {
             parsedConfig: null,
           };
         } else {
-          console.log("parsedZodResult (as YAML):\n", yaml.dump(parsedZodResult));
-          console.log("parsedZodResult = ", JSON.stringify(parsedZodResult, null, 2))
+          //console.log("parsedZodResult (as YAML):\n", yaml.dump(parsedZodResult));
+          //console.log("parsedZodResult = ", JSON.stringify(parsedZodResult, null, 2))
           return {
             errorMessage: "",
             parsedConfig: parsedZodResult, // ok
@@ -64,27 +64,27 @@ export default class SimConfigValidator {
     }
   }
 
-  private validateParsedYaml(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private validateParsedYaml(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     // Validate and assign unique service IDs
     // This step generates unique identifiers for each service and checks for duplicate service names.
-    const serviceIdErrors = this.validateAndAssignServiceIds(parsedYAML);
+    const serviceIdErrors = this.validateAndAssignServiceIds(parsedConfig);
     if (serviceIdErrors.length) return serviceIdErrors;
 
     // Check for duplicate endpoint IDs and collect all defined endpoint IDs
     // These collected IDs will be used for subsequent validation steps.
-    const { endpointIdValidationErrors, allDefinedEndpointIds } = this.validateEndpointIds(parsedYAML);
+    const { endpointIdValidationErrors, allDefinedEndpointIds } = this.validateEndpointIds(parsedConfig);
     if (endpointIdValidationErrors.length) return endpointIdValidationErrors;
 
     // Validate endpoint dependencies
     // Ensures that all referenced endpoints exist and dependencies are correctly defined.
-    const dependencyErrors = this.validateEndpointDependencies(parsedYAML, allDefinedEndpointIds);
+    const dependencyErrors = this.validateEndpointDependencies(parsedConfig, allDefinedEndpointIds);
     if (dependencyErrors.length) return dependencyErrors;
 
     // Validate LoadSimulation settings
     // Includes checking service metrics to verify services exist and no duplicates,
     // and validating endpoint metrics for correct endpoint references and duplicates.
-    const serviceMetricErrors = this.validateServiceMetrics(parsedYAML);
-    const endpointMetricErrors = this.validateEndpointMetrics(parsedYAML, allDefinedEndpointIds);
+    const serviceMetricErrors = this.validateServiceMetrics(parsedConfig);
+    const endpointMetricErrors = this.validateEndpointMetrics(parsedConfig, allDefinedEndpointIds);
 
     const loadSimulationErrors = [
       ...serviceMetricErrors,
@@ -94,23 +94,23 @@ export default class SimConfigValidator {
     if (loadSimulationErrors.length) return loadSimulationErrors;
 
     // Assign serviceId to loadSimulation.serviceMetrics' versions based on servicesInfo
-    const serviceMetricIdsErrors = this.assignServiceIdsToMetrics(parsedYAML);
+    const serviceMetricIdsErrors = this.assignServiceIdsToMetrics(parsedConfig);
     if (serviceMetricIdsErrors.length) return dependencyErrors;
 
     // Convert all user-defined endpoint IDs to unique endpoint names
     // This prevents conflicts in subsequent processing stages.
-    const conversionErrors = this.convertEndpointIdsToUniqueEndpointNames(parsedYAML);
+    const conversionErrors = this.convertEndpointIdsToUniqueEndpointNames(parsedConfig);
     if (conversionErrors.length) return conversionErrors;
 
     // If no errors found, return an empty array.
     return [];
   }
 
-  private validateAndAssignServiceIds(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private validateAndAssignServiceIds(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
     const existingServiceId = new Set<string>();
 
-    parsedYAML.servicesInfo.forEach(namespace =>
+    parsedConfig.servicesInfo.forEach(namespace =>
       namespace.services.forEach(service =>
         service.versions.forEach(version => {
           // Generate serviceId
@@ -132,14 +132,14 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private validateEndpointIds(parsedYAML: TSimulationConfigYAML): {
+  private validateEndpointIds(parsedConfig: TSimulationConfigYAML): {
     endpointIdValidationErrors: TSimulationConfigErrors[],
     allDefinedEndpointIds: Set<string>,
   } {
     const errors: TSimulationConfigErrors[] = [];
     const allDefinedEndpointIds = new Set<string>();
 
-    parsedYAML.servicesInfo.forEach(ns =>
+    parsedConfig.servicesInfo.forEach(ns =>
       ns.services.forEach(svc =>
         svc.versions.forEach(ver =>
           ver.endpoints.forEach(ep => {
@@ -162,14 +162,14 @@ export default class SimConfigValidator {
     }
   }
 
-  private validateEndpointDependencies(parsedYAML: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
+  private validateEndpointDependencies(parsedConfig: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
     // Check that source endpointId is defined in servicesInfo
     // Check that each target endpointId in dependOn is defined in servicesInfo
     // Ensure no endpoint depends on itself
     // Check for duplicate source endpointIds within endpointDependencies
     const errorMessages: TSimulationConfigErrors[] = [];
     const seenSourceEndpointIds = new Set<string>();
-    parsedYAML.endpointDependencies?.forEach((dep, index) => {
+    parsedConfig.endpointDependencies?.forEach((dep, index) => {
       const errorLocation = `endpointDependencies[${index}]`;
       if (!allDefinedEndpointIds.has(dep.endpointId)) {
         errorMessages.push({
@@ -194,7 +194,7 @@ export default class SimConfigValidator {
         }
       });
     });
-    parsedYAML.endpointDependencies?.forEach((dep, index) => {
+    parsedConfig.endpointDependencies?.forEach((dep, index) => {
       const sourceId = dep.endpointId;
       const errorLocation = `endpointDependencies[${index}]`;
 
@@ -211,12 +211,12 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private validateServiceMetrics(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private validateServiceMetrics(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
 
     // service metric
     const definedServiceVersions = new Set<string>();
-    parsedYAML.servicesInfo.forEach(ns => {
+    parsedConfig.servicesInfo.forEach(ns => {
       ns.services.forEach(svc => {
         svc.versions.forEach(ver => {
           const key = `${svc.serviceName}\t${ver.version}`;
@@ -225,7 +225,7 @@ export default class SimConfigValidator {
       });
     });
 
-    parsedYAML.loadSimulation?.serviceMetrics.forEach((metric, index) => {
+    parsedConfig.loadSimulation?.serviceMetrics.forEach((metric, index) => {
       const errorLocation = `loadSimulation.serviceMetrics[${index}]`;
       metric.versions.forEach((ver, verIndex) => {
         const versionLocation = `${errorLocation}.versions[${verIndex}]`;
@@ -241,7 +241,7 @@ export default class SimConfigValidator {
     });
 
     const seenServiceVersions = new Set<string>();
-    parsedYAML.loadSimulation?.serviceMetrics.forEach((metric, index) => {
+    parsedConfig.loadSimulation?.serviceMetrics.forEach((metric, index) => {
       const errorLocation = `loadSimulation.serviceMetrics[${index}]`;
       metric.versions.forEach((ver, verIndex) => {
         const versionLocation = `${errorLocation}.versions[${verIndex}]`;
@@ -261,12 +261,12 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private validateEndpointMetrics(parsedYAML: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
+  private validateEndpointMetrics(parsedConfig: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
 
     // endpoint metric
     const seenEndpointIds = new Set<string>();
-    parsedYAML.loadSimulation?.endpointMetrics.forEach((m, index) => {
+    parsedConfig.loadSimulation?.endpointMetrics.forEach((m, index) => {
       const errorLocation = `loadSimulation.endpointMetrics[${index}]`;
       if (!allDefinedEndpointIds.has(m.endpointId)) {
         errorMessages.push({
@@ -276,7 +276,7 @@ export default class SimConfigValidator {
       }
     });
 
-    parsedYAML.loadSimulation?.endpointMetrics.forEach((m, index) => {
+    parsedConfig.loadSimulation?.endpointMetrics.forEach((m, index) => {
       const errorLocation = `loadSimulation.endpointMetrics[${index}]`;
       if (seenEndpointIds.has(m.endpointId)) {
         errorMessages.push({
@@ -291,11 +291,11 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private assignServiceIdsToMetrics(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private assignServiceIdsToMetrics(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
     const serviceVersionToIdMap = new Map<string, string>();
 
-    parsedYAML.servicesInfo.forEach(ns => {
+    parsedConfig.servicesInfo.forEach(ns => {
       ns.services.forEach(svc => {
         svc.versions.forEach(ver => {
           const key = `${svc.serviceName.trim()}\t${ver.version.trim()}`;
@@ -304,7 +304,7 @@ export default class SimConfigValidator {
       });
     });
 
-    parsedYAML.loadSimulation?.serviceMetrics.forEach((metric, metricIndex) => {
+    parsedConfig.loadSimulation?.serviceMetrics.forEach((metric, metricIndex) => {
       metric.versions.forEach((ver, verIndex) => {
         const key = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
         const matchedServiceId = serviceVersionToIdMap.get(key);
@@ -324,12 +324,12 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private convertEndpointIdsToUniqueEndpointNames(parsedYAML: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private convertEndpointIdsToUniqueEndpointNames(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];// If earlier validation steps were thorough, errorMessages should be empty.(This is just in case).
     const endpointIdToUniqueNameMap = new Map<string, string>();
     // Generate unique endpointIds and build mapping
     const existingUniqueEndpointNameMappings = this.getExistingUniqueEndpointNameMappings();
-    parsedYAML.servicesInfo.forEach((namespace) => {
+    parsedConfig.servicesInfo.forEach((namespace) => {
       namespace.services.forEach((service) => {
         service.versions.forEach((version) => {
           const uniqueServiceName = version.serviceId!;
@@ -353,7 +353,7 @@ export default class SimConfigValidator {
     });
 
     // Replace endpointIds in endpointDependencies
-    parsedYAML.endpointDependencies?.forEach((dep, index) => {
+    parsedConfig.endpointDependencies?.forEach((dep, index) => {
       const originalSourceId = dep.endpointId;
       const mappedSourceId = endpointIdToUniqueNameMap.get(originalSourceId);
       const sourceLocation = `endpointDependencies[${index}].endpointId`;
@@ -383,7 +383,7 @@ export default class SimConfigValidator {
       });
     });
     // Replace endpointIds in loadSimulation
-    parsedYAML.loadSimulation?.endpointMetrics.forEach((metric, index) => {
+    parsedConfig.loadSimulation?.endpointMetrics.forEach((metric, index) => {
       const originalId = metric.endpointId;
       const mappedId = endpointIdToUniqueNameMap.get(originalId);
       const errorLocation = `loadSimulation.endpointMetrics[${index}].endpointId`;

@@ -1,15 +1,19 @@
 import {
   TSimulationConfigYAML,
   TSimulationConfigErrors,
+  TSimulationEndpointMetric,
   TSimulationConfigProcessResult,
   BodyInputType
 } from "../../entities/TSimulationConfig";
 
 export default class SimConfigPreprocessor {
-  preprocessEndpointDataTypeInYaml(parsedYamlAfterValidation: TSimulationConfigYAML): TSimulationConfigProcessResult {
+
+
+
+  preprocessEndpointDataTypeInYaml(parsedConfig: TSimulationConfigYAML): TSimulationConfigProcessResult {
     let errorMessageDetails: TSimulationConfigErrors[] = [];
     try {
-      errorMessageDetails = this.validateAndPreprocessEndpointBodies(parsedYamlAfterValidation);
+      errorMessageDetails = this.validateAndPreprocessEndpointBodies(parsedConfig);
       if (errorMessageDetails.length) {
         return {
           errorMessage: [
@@ -21,7 +25,7 @@ export default class SimConfigPreprocessor {
       }
       return {
         errorMessage: "",
-        parsedConfig: parsedYamlAfterValidation,
+        parsedConfig: parsedConfig,
       }
     } catch (e) {
       return {
@@ -31,9 +35,61 @@ export default class SimConfigPreprocessor {
     }
   }
 
-  private validateAndPreprocessEndpointBodies(parsedYAML: TSimulationConfigYAML) {
+  // Avoid missing base error rates for endpoints when adjusting error rates during load simulation
+  addDefaultMetricsForMissingEndpointsInPlace(parsedConfig: TSimulationConfigYAML): TSimulationConfigProcessResult {
+    try {
+      const allEndpointIds = new Set<string>();
+      parsedConfig.servicesInfo.forEach(namespace => {
+        namespace.services.forEach(service => {
+          service.versions.forEach(version => {
+            version.endpoints.forEach(endpoint => {
+              allEndpointIds.add(endpoint.endpointId);
+            });
+          });
+        });
+      });
+      console.log("allEndpointIds", allEndpointIds);
+
+      if (!parsedConfig.loadSimulation) {
+        parsedConfig.loadSimulation = {
+          serviceMetrics: [],
+          endpointMetrics: [],
+        };
+      }
+
+      const endpointMetrics: TSimulationEndpointMetric[] = parsedConfig.loadSimulation.endpointMetrics ?? [];
+      const existingMetricIds = new Set(endpointMetrics.map(m => m.endpointId));
+
+      const missingEndpointIds = Array.from(allEndpointIds).filter(id => !existingMetricIds.has(id));
+
+      console.log("missingEndpointIds", missingEndpointIds);
+
+      const defaultMetrics = missingEndpointIds.map(id => ({
+        endpointId: id,
+        latencyMs: 0,
+        expectedExternalDailyRequestCount: 0,
+        errorRatePercentage: 0,
+        fallbackEnabled: false,
+      }));
+      console.log("defaultMetrics", defaultMetrics);
+      parsedConfig.loadSimulation.endpointMetrics = [...endpointMetrics, ...defaultMetrics];
+      console.log("final config", parsedConfig);
+      return {
+        errorMessage: "",
+        parsedConfig: parsedConfig,
+      }
+    } catch (e) {
+      return {
+        errorMessage: `Failed to add default metrics for missing endpoints:\n---\n${e instanceof Error ? e.message : e}`,
+        parsedConfig: null,
+      };
+    }
+
+  }
+
+  private validateAndPreprocessEndpointBodies(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
-    parsedYAML.servicesInfo.forEach((namespace, nsIndex) => {
+    parsedConfig.servicesInfo.forEach((namespace, nsIndex) => {
       namespace.services.forEach((service, svcIndex) => {
         service.versions.forEach((version, verIndex) => {
           version.endpoints.forEach((endpoint, epIndex) => {
