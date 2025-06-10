@@ -1,50 +1,32 @@
 import {
   TSimulationServiceMetric,
   TSimulationEndpointMetric,
-  TSimulationEndpointDatatype,
   TLoadSimulation
 } from "../../entities/TSimulationConfig";
-import { TRealtimeData } from "../../entities/TRealtimeData";
+import {
+  TBaseDataWithResponses,
+  TTrafficSimulationResult,
+} from "../../entities/TLoadSimulation";
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
-import Utils from "../../utils/Utils";
 
+import LoadSimulationDataGenerator from "./LoadSimulationDataGenerator";
+import LoadSimulationPropagator from "./LoadSimulationPropagator";
 
-type TBaseRealtimeData = Omit<
-  TRealtimeData,
-  'latency' | 'status' | 'responseBody' | 'responseContentType' | 'timestamp'
->;
-
-type TBaseDataWithResponses = {
-  baseData: TBaseRealtimeData,
-  responses?: TSimulationEndpointDatatype['responses'],
-}
-
-// Represents request statistics for a specific endpoint during a particular hour
-type TEndpointTrafficStats = {
-  requestCount: number;
-  errorCount: number;
-  maxLatency: number;
-};
-
-// Request statistics for all endpoints in a specific hour 
-// (key: endpoint ID, value: statistics for that endpoint)
-type THourlyTrafficStatsMap = Map<string, TEndpointTrafficStats>;
-
-// Request statistics for 24 hours in a specific day 
-// (key: hour of the day (0–23), value: HourlyStatsMap for that hour)
-type TDailyTrafficStatsMap = Map<number, THourlyTrafficStatsMap>;
-
-// Simulation results for all dates in the simulation period of a single run 
-// (key: day index (0 ~ simulationDurationInDays -1), value: DailyStatsMap for that day)
-type TTrafficSimulationResult = Map<number, TDailyTrafficStatsMap>;
 
 export default class LoadSimulationHandler {
   private static instance?: LoadSimulationHandler;
   static getInstance = () => this.instance || (this.instance = new this());
-  private constructor() { }
 
-  generateHourlyCombinedRealtimeDataMap(
+  private dataGenerator: LoadSimulationDataGenerator;
+  private propagator: LoadSimulationPropagator;
+
+  private constructor() {
+    this.dataGenerator = new LoadSimulationDataGenerator();
+    this.propagator = new LoadSimulationPropagator();
+  }
+
+  generateMinuteCombinedRealtimeDataMap(
     loadSimulationSettings: TLoadSimulation,
     dependOnMap: Map<string, Set<string>>,
     replicaCountList: TReplicaCount[],
@@ -55,26 +37,25 @@ export default class LoadSimulationHandler {
     const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
     const simulationDurationInDays = loadSimulationSettings.config?.simulationDurationInDays ?? 1;
     const {
-      hourlyRequestCountsForEachDayMap,
+      minutelyRequestCountsForEachDayMap,
       latencyMap,
       errorRateMap: basicErrorRateMap
     } = this.getTrafficMap(endpointMetrics, simulationDurationInDays);
 
     // Use the basic error rate to simulate traffic propagation and calculate the 
     // expected incoming traffic for each service under normal (non-overloaded) conditions
-    const trafficPropagationWithBasicErrorResults = this.simulateTrafficWithBaseErrorRates(
+    const trafficPropagationWithBasicErrorResults = this.propagator.simulatePropagationWithBaseErrorRates(
       dependOnMap,
-      hourlyRequestCountsForEachDayMap,
+      minutelyRequestCountsForEachDayMap,
       latencyMap,
       basicErrorRateMap,
     );
 
     // Estimate overload level for each service based on expected incoming traffic, the number of replicas, and per-replica throughput capacity  
-    // Then combine with base error rate to calculate the adjusted error rate per endpoint, per hour  
-    // (TODO) Per-replica throughput is currently fixed — consider allowing user configuration in the future
-    const serviceRequestCountsPerHour = this.aggregateServiceRequestCountPerHour(trafficPropagationWithBasicErrorResults);
-    const generateAdjustedErrorRatePerHourResult = this.generateAdjustedEndpointErrorRatePerHour(
-      serviceRequestCountsPerHour,
+    // Then combine with base error rate to calculate the adjusted error rate per endpoint, per minute  
+    const serviceRequestCountsPerMinute = this.aggregateServiceRequestCountPerMinute(trafficPropagationWithBasicErrorResults);
+    const generateAdjustedErrorRatePerMinuteResult = this.generateAdjustedEndpointErrorRatePerMinute(
+      serviceRequestCountsPerMinute,
       basicErrorRateMap,
       replicaCountList,
       serviceMetrics
@@ -82,35 +63,35 @@ export default class LoadSimulationHandler {
 
     // Re-run traffic propagation with adjusted error rates  
     // to obtain actual traffic distribution considering both "base errors" and "overload-induced errors"
-    const trafficPropagationWithOverloadErrorResults = this.simulateTrafficWithAdjustedErrorRates(
+    const trafficPropagationWithOverloadErrorResults = this.propagator.simulatePropagationWithAdjustedErrorRates(
       dependOnMap,
-      hourlyRequestCountsForEachDayMap,
+      minutelyRequestCountsForEachDayMap,
       latencyMap,
-      generateAdjustedErrorRatePerHourResult,
+      generateAdjustedErrorRatePerMinuteResult,
     );
 
-    const realtimeCombinedDataPerHourMap: Map<string, TCombinedRealtimeData[]> = this.generateRealtimeDataFromSimulationResults(
+    const realtimeCombinedDataPerMinuteMap: Map<string, TCombinedRealtimeData[]> = this.dataGenerator.generateRealtimeDataFromSimulationResults(
       EndpointRealTimeBaseDatas,
       trafficPropagationWithOverloadErrorResults,
       simulateDate
     );
-    return realtimeCombinedDataPerHourMap;
+    return realtimeCombinedDataPerMinuteMap;
   }
 
   private getTrafficMap(
     endpointMetrics: TSimulationEndpointMetric[],
     simulationDurationInDays: number,
   ): {
-    hourlyRequestCountsForEachDayMap: Map<string, number[][]>; // key: endpointId, value: array of [days][24 hours]
+    minutelyRequestCountsForEachDayMap: Map<string, number[][][]>; // key: endpointId, value: dailyRequestCounts[day][hour][minute]
     latencyMap: Map<string, number>;      // latency >= 0 key:endpointId value: latencyMs
     errorRateMap: Map<string, number>;    // errorRate in [0,1] key:endpointId value: errorRatePercentage / 100
   } {
-    const hourlyRequestCountsForEachDayMap = new Map<string, number[][]>();
+    const minutelyRequestCountsForEachDayMap = new Map<string, number[][][]>();
     const latencyMap = new Map<string, number>();
     const errorRateMap = new Map<string, number>();
 
     if (!endpointMetrics) {
-      return { hourlyRequestCountsForEachDayMap, latencyMap, errorRateMap };
+      return { minutelyRequestCountsForEachDayMap, latencyMap, errorRateMap };
     }
 
     const SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
@@ -128,11 +109,11 @@ export default class LoadSimulationHandler {
       const errorRate = (metric.errorRatePercentage ?? 0) / 100;
       errorRateMap.set(endpointId, errorRate);
 
-      // hourlyRequestCountsForEachDayMap
+      // Minutely Request Counts for Each Day
+      // e.g., for the 3rd day, the count at 11:05 AM is dailyRequestCounts[2][11][5]
       const baseDailyRequestCount = metric.expectedExternalDailyRequestCount ?? 0;
       if (baseDailyRequestCount === 0) continue;
-      // Hourly request counts for each day (e.g., for the 3rd day, the count from 11:00 to 12:00 is dailyRequestCounts[2][11])
-      const dailyRequestCounts: number[][] = [];
+      const dailyRequestCounts: number[][][] = [];
 
       for (let day = 0; day < simulationDurationInDays; day++) {
         const isMutated = Math.random() < PROBABILITY_OF_MUTATION;
@@ -145,158 +126,43 @@ export default class LoadSimulationHandler {
         );
 
         dailyRequestCounts.push(
-          this.distributeDailyRequestToEachHours(realRequestCountForThisday)
+          this.distributeDailyRequestToEachMinutes(realRequestCountForThisday)
         );
       }
 
-      hourlyRequestCountsForEachDayMap.set(endpointId, dailyRequestCounts);
+      minutelyRequestCountsForEachDayMap.set(endpointId, dailyRequestCounts);
     }
 
-    return { hourlyRequestCountsForEachDayMap, latencyMap, errorRateMap };
+    return { minutelyRequestCountsForEachDayMap: minutelyRequestCountsForEachDayMap, latencyMap, errorRateMap };
   }
 
-  private aggregateServiceRequestCountPerHour(
+  private aggregateServiceRequestCountPerMinute(
     trafficPropagationResults: TTrafficSimulationResult
   ): Map<string, Map<string, number>> {
-    const serviceRequestCountsPerHour = new Map<string, Map<string, number>>();
+    const serviceRequestCountsPerMinute = new Map<string, Map<string, number>>();
 
     for (const [day, dailyStats] of trafficPropagationResults.entries()) {
       for (const [hour, hourlyStats] of dailyStats.entries()) {
-        const key = `${day}-${hour}`;
-        if (!serviceRequestCountsPerHour.has(key)) {
-          serviceRequestCountsPerHour.set(key, new Map());
-        }
-        const serviceMap = serviceRequestCountsPerHour.get(key)!;
-
-        for (const [endpointId, stats] of hourlyStats.entries()) {
-          const serviceId = this.extractServiceIdFromEndpointId(endpointId);
-          const prevCount = serviceMap.get(serviceId) || 0;
-          serviceMap.set(serviceId, prevCount + stats.requestCount);
-        }
-      }
-    }
-
-    return serviceRequestCountsPerHour;
-  }
-
-  private simulateTrafficWithBaseErrorRates(
-    dependOnMap: Map<string, Set<string>>,
-    hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
-    latencyMap: Map<string, number>,
-    errorRateMap: Map<string, number>
-  ): TTrafficSimulationResult {
-
-    const results: TTrafficSimulationResult = new Map();
-
-    for (const [entryPointId, dailyHourlyCounts] of hourlyRequestCountsForEachDayMap.entries()) {
-      for (let day = 0; day < dailyHourlyCounts.length; day++) {
-        const hourlyCounts = dailyHourlyCounts[day];
-        for (let hour = 0; hour < 24; hour++) {
-          const count = hourlyCounts[hour];
-          if (count <= 0) continue;
-
-          const { stats } = this.simulateTrafficPropagationFromSingleEntry(
-            entryPointId,
-            count,
-            dependOnMap,
-
-            latencyMap,
-            errorRateMap
-          );
-
-          if (!results.has(day)) {
-            results.set(day, new Map());
+        for (const [minute, minuteStats] of hourlyStats.entries()) {
+          const key = `${day}-${hour}-${minute}`;
+          if (!serviceRequestCountsPerMinute.has(key)) {
+            serviceRequestCountsPerMinute.set(key, new Map());
           }
-          const dailyStats: TDailyTrafficStatsMap = results.get(day)!;
-          if (!dailyStats.has(hour)) {
-            dailyStats.set(hour, new Map());
-          }
-          const hourlyStats: THourlyTrafficStatsMap = dailyStats.get(hour)!;
-
-
-          for (const [targetEndpointId, stat] of stats.entries()) {
-            if (!hourlyStats.has(targetEndpointId)) {
-              hourlyStats.set(targetEndpointId, {
-                requestCount: 0,
-                errorCount: 0,
-                maxLatency: 0
-              });
-            }
-            const existingStats = hourlyStats.get(targetEndpointId)!;
-            existingStats.requestCount += stat.requestCount;
-            existingStats.errorCount += stat.errorCount;
-            existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
-            // console.log(hourlyStats.get(targetEndpointId))
+          const serviceMap = serviceRequestCountsPerMinute.get(key)!;
+          for (const [endpointId, stats] of minuteStats.entries()) {
+            const serviceId = this.extractServiceIdFromEndpointId(endpointId);
+            const prevCount = serviceMap.get(serviceId) || 0;
+            serviceMap.set(serviceId, prevCount + stats.requestCount);
           }
         }
       }
     }
-    return results;
+
+    return serviceRequestCountsPerMinute;
   }
 
-  private simulateTrafficWithAdjustedErrorRates(
-    dependOnMap: Map<string, Set<string>>,
-    hourlyRequestCountsForEachDayMap: Map<string, number[][]>,
-    latencyMap: Map<string, number>,
-    adjustedErrorRatePerHour: Map<string, Map<string, number>>
-  ): TTrafficSimulationResult {
-
-    const results: TTrafficSimulationResult = new Map();
-
-    for (const [entryPointId, dailyHourlyCounts] of hourlyRequestCountsForEachDayMap.entries()) {
-      for (let day = 0; day < dailyHourlyCounts.length; day++) {
-        const hourlyCounts = dailyHourlyCounts[day];
-        for (let hour = 0; hour < 24; hour++) {
-          const count = hourlyCounts[hour];
-          if (count <= 0) continue;
-
-          const dayHour = `${day}-${hour}`;
-
-          // Get the adjusted error rate of all endpoints in a specific hour
-          const errorRateMapForHour = adjustedErrorRatePerHour.get(dayHour) || new Map();
-
-          const { stats } = this.simulateTrafficPropagationFromSingleEntry(
-            entryPointId,
-            count,
-            dependOnMap,
-
-            latencyMap,
-            errorRateMapForHour
-          );
-          // console.log("errorRateMapForHour ", errorRateMapForHour)
-
-          if (!results.has(day)) {
-            results.set(day, new Map());
-          }
-          const dailyStats: TDailyTrafficStatsMap = results.get(day)!;
-          if (!dailyStats.has(hour)) {
-            dailyStats.set(hour, new Map());
-          }
-          const hourlyStats: THourlyTrafficStatsMap = dailyStats.get(hour)!;
-
-
-          for (const [targetEndpointId, stat] of stats.entries()) {
-            if (!hourlyStats.has(targetEndpointId)) {
-              hourlyStats.set(targetEndpointId, {
-                requestCount: 0,
-                errorCount: 0,
-                maxLatency: 0
-              });
-            }
-            const existingStats = hourlyStats.get(targetEndpointId)!;
-            existingStats.requestCount += stat.requestCount;
-            existingStats.errorCount += stat.errorCount;
-            existingStats.maxLatency = Math.max(existingStats.maxLatency, stat.maxLatency);
-            // console.log(hourlyStats.get(targetEndpointId))
-          }
-        }
-      }
-    }
-    return results;
-  }
-
-  private generateAdjustedEndpointErrorRatePerHour(
-    serviceRequestCountsPerHour: Map<string, Map<string, number>>,
+  private generateAdjustedEndpointErrorRatePerMinute(
+    serviceRequestCountsPerMinute: Map<string, Map<string, number>>,
     basicErrorRateMap: Map<string, number>,
     replicaCountList: TReplicaCount[],
     serviceMetrics: TSimulationServiceMetric[],
@@ -315,7 +181,7 @@ export default class LoadSimulationHandler {
       endpointToServiceMap.set(endpointId, serviceId);
     }
 
-    // Map :endpointId => serviceId
+    // Map: serviceId => capacity per replica
     const serviceCapacityMap = new Map<string, number>();
     for (const metric of serviceMetrics) {
       for (const version of metric.versions) {
@@ -325,18 +191,18 @@ export default class LoadSimulationHandler {
       }
     }
 
-    // Final result: Map<dayHour, Map<endpointId, adjustedErrorRate>>
-    const adjustedErrorRatePerHour = new Map<string, Map<string, number>>();
+    // Final result: Map<day-hour-minute, Map<endpointId, adjustedErrorRate>>
+    const adjustedErrorRatePerMinute = new Map<string, Map<string, number>>();
 
-    for (const [dayHour, serviceCounts] of serviceRequestCountsPerHour.entries()) {
+    for (const [dayHourMinuteKey, serviceCounts] of serviceRequestCountsPerMinute.entries()) {
       const adjustedMap = new Map<string, number>();
 
       for (const [endpointId, baseErrorRate] of basicErrorRateMap.entries()) {
         const serviceId = endpointToServiceMap.get(endpointId)!;
 
         // Get request count for the service in this hour
-        const requestCountPerHour = serviceCounts.get(serviceId) ?? 0;
-        const requestCountPerSecond = requestCountPerHour / 3600;
+        const requestCountPerMinute = serviceCounts.get(serviceId) ?? 0;
+        const requestCountPerSecond = requestCountPerMinute / 60;
 
         const replicaCount = replicaCountMap.get(serviceId) ?? 1;
         const replicaMaxRPS = serviceCapacityMap.get(serviceId) ?? 1;
@@ -351,200 +217,68 @@ export default class LoadSimulationHandler {
         adjustedMap.set(endpointId, adjustedErrorRate);
       }
 
-      adjustedErrorRatePerHour.set(dayHour, adjustedMap);
+      adjustedErrorRatePerMinute.set(dayHourMinuteKey, adjustedMap);
     }
 
-    return adjustedErrorRatePerHour;
+    return adjustedErrorRatePerMinute;
   }
 
-  private generateRealtimeDataFromSimulationResults(
-    baseDataMap: Map<string, TBaseDataWithResponses>,
-    trafficPropagationResults: TTrafficSimulationResult,
-    simulateDate: number
-  ): Map<string, TCombinedRealtimeData[]> {
-    const realtimeDataPerHour = new Map<string, TCombinedRealtimeData[]>(); // key: "day-hour"
+  // Randomly distribute the total daily request count across each minute of the day
+  private distributeDailyRequestToEachMinutes(realRequestCountForThisDay: number): number[][] {
+    const hours = 24;
+    const minutesPerHour = 60;
+    const totalMinutes = hours * minutesPerHour;
 
-    for (const [day, dailyStats] of trafficPropagationResults.entries()) {
-      for (const [hour, hourlyStats] of dailyStats.entries()) {
-        const combinedList: TCombinedRealtimeData[] = [];
-
-        for (const [endpointId, stats] of hourlyStats.entries()) {
-          const baseDataWithResp = baseDataMap.get(endpointId);
-          if (!baseDataWithResp) continue;
-
-          const { baseData, responses } = baseDataWithResp;
-          const timestampMicro = (simulateDate + day * 86400_000 + hour * 3600_000) * 1000;
-
-
-          const successCount = stats.requestCount - stats.errorCount;
-          const errorCount = stats.errorCount;
-
-          if (successCount > 0) {
-            const resp2xx = responses?.find(r => String(r.status).startsWith("2"));
-            combinedList.push({
-              uniqueServiceName: baseData.uniqueServiceName,
-              uniqueEndpointName: baseData.uniqueEndpointName,
-              latestTimestamp: timestampMicro,
-              method: baseData.method,
-              service: baseData.service,
-              namespace: baseData.namespace,
-              version: baseData.version,
-              requestBody: baseData.requestBody,
-              requestContentType: baseData.requestContentType,
-              responseBody: resp2xx?.responseBody,
-              responseContentType: resp2xx?.responseContentType,
-              requestSchema: undefined,
-              responseSchema: undefined,
-              avgReplica: baseData.replica,
-              combined: successCount,
-              status: String(resp2xx?.status ?? "200"),
-              latency: this.computeLatencyCV(stats.maxLatency, successCount),
-            });
-          }
-
-          if (errorCount > 0) {
-            const resp5xx = responses?.find(r => String(r.status).startsWith("5"));
-            combinedList.push({
-              uniqueServiceName: baseData.uniqueServiceName,
-              uniqueEndpointName: baseData.uniqueEndpointName,
-              latestTimestamp: timestampMicro,
-              method: baseData.method,
-              service: baseData.service,
-              namespace: baseData.namespace,
-              version: baseData.version,
-              requestBody: baseData.requestBody,
-              requestContentType: baseData.requestContentType,
-              responseBody: resp5xx?.responseBody,
-              responseContentType: resp5xx?.responseContentType,
-              requestSchema: undefined,
-              responseSchema: undefined,
-              avgReplica: baseData.replica,
-              combined: errorCount,
-              status: String(resp5xx?.status ?? "500"),
-              latency: this.computeLatencyCV(stats.maxLatency, errorCount),
-            });
-          }
-        }
-        realtimeDataPerHour.set(`${day}-${hour}`, combinedList);
-      }
-    }
-    return realtimeDataPerHour;
-  }
-
-  // Randomly distribute the total daily request count across each hour of the day
-  private distributeDailyRequestToEachHours(realRequestCountForThisday: number): number[] {
-    if (realRequestCountForThisday === 0) {
-      return new Array(24).fill(0);;
+    if (realRequestCountForThisDay === 0) {
+      return Array.from({ length: hours }, () => new Array(minutesPerHour).fill(0));
     }
 
-    // Generate random request count weights for 24 hours
-    const weights = Array.from({ length: 24 }, () => Math.random());
+    // Generate random request count weights for 1440 minutes
+    const weights = Array.from({ length: totalMinutes }, () => Math.random());
     const totalWeight = weights.reduce((sum, w) => sum + w, 0);
     const normalizeWeights = weights.map(w => w / totalWeight);
-    const hourlyRequestCountsForThisDay: number[] =
-      normalizeWeights.map(w => Math.round(w * realRequestCountForThisday));
+
+
+    const flatMinuteRequestCounts: number[] =
+      normalizeWeights.map(w => Math.round(w * realRequestCountForThisDay));
 
     // Fix rounding error
-    let diff = realRequestCountForThisday
-      - hourlyRequestCountsForThisDay.reduce((a, b) => a + b, 0);
-    if (diff !== 0) {// fix rounding error
-      const indices = Array.from({ length: 24 }, (_, i) => i);
+    let diff = realRequestCountForThisDay
+      - flatMinuteRequestCounts.reduce((a, b) => a + b, 0);
+
+    if (diff !== 0) {
+      const indices = Array.from({ length: totalMinutes }, (_, i) => i);
       indices.sort((a, b) => normalizeWeights[b] - normalizeWeights[a]);
       let i = 0;
       while (diff !== 0) {
-        const index = indices[i % 24];
+        const index = indices[i % totalMinutes];
 
         if (diff > 0) {
-          hourlyRequestCountsForThisDay[index]++;
+          flatMinuteRequestCounts[index]++;
           diff--;
         } else if (diff < 0) {
-          const allZero = hourlyRequestCountsForThisDay.every(count => count === 0);
+          const allZero = flatMinuteRequestCounts.every(count => count === 0);
           if (allZero) {
             break;
           }
-          if (hourlyRequestCountsForThisDay[index] > 0) {
-            hourlyRequestCountsForThisDay[index]--;
+          if (flatMinuteRequestCounts[index] > 0) {
+            flatMinuteRequestCounts[index]--;
             diff++;
           }
         }
         i++;
       }
     }
-    return hourlyRequestCountsForThisDay;
-  }
-
-  private simulateTrafficPropagationFromSingleEntry(
-    entryPointId: string,
-    initialRequestCount: number,
-    dependOnMap: Map<string, Set<string>>,
-    latencyMap: Map<string, number>,
-    errorRateMap: Map<string, number>,
-  ): {
-    entryPointId: string;
-    stats: Map<string, { requestCount: number; errorCount: number; maxLatency: number }>;
-  } {
-    // console.log(dependByMap);
-    // If there are no initial requests, return empty stats
-    if (initialRequestCount <= 0) {
-      return { entryPointId, stats: new Map() };
+    // Convert flat array [1440] to 2D array [24][60]
+    const minuteRequestCounts: number[][] = [];
+    for (let hour = 0; hour < hours; hour++) {
+      const start = hour * minutesPerHour;
+      const end = start + minutesPerHour;
+      minuteRequestCounts.push(flatMinuteRequestCounts.slice(start, end));
     }
 
-    // Store aggregated statistics per endpoint
-    const stats = new Map<string, { requestCount: number; errorCount: number; maxLatency: number }>();
-    // Track visited endpoints to avoid cycles
-    const visited = new Set<string>();
 
-    // Depth-first search to propagate traffic and compute metrics
-    function dfs(endpointId: string, propagatedRequests: number): number {
-      // If already visited or no requests to propagate, return zero latency
-      if (visited.has(endpointId) || propagatedRequests <= 0) return 0;
-      visited.add(endpointId);
-
-      const errorRate = errorRateMap.get(endpointId) ?? 0;
-      const latency = latencyMap.get(endpointId) ?? 0;
-
-      // Simulate error count based on error rate
-      let errorCount = 0;
-      if (errorRate === 1) errorCount = propagatedRequests;
-      else if (errorRate > 0) {
-        for (let i = 0; i < propagatedRequests; i++) {
-          if (Math.random() < errorRate) errorCount++;
-        }
-      }
-
-      // Calculate successful requests after errors
-      const successfulRequests = propagatedRequests - errorCount;
-
-      // Recursively propagate to dependent child endpoints
-      const children = dependOnMap.get(endpointId);
-      let maxChildLatency = 0;
-      if (children) {
-        for (const childId of children) {
-          const childLatency = dfs(childId, successfulRequests);
-          if (childLatency > maxChildLatency) maxChildLatency = childLatency;
-        }
-      }
-
-      // Total latency includes current endpoint's latency and max downstream latency
-      const totalLatency = latency + maxChildLatency;
-
-      // Update stats for this endpoint with accumulated values
-      const currentStats = stats.get(endpointId) ?? { requestCount: 0, errorCount: 0, maxLatency: 0 };
-      stats.set(endpointId, {
-        requestCount: currentStats.requestCount + propagatedRequests,
-        errorCount: currentStats.errorCount + errorCount,
-        maxLatency: Math.max(currentStats.maxLatency, totalLatency),
-      });
-
-      // Remove endpoint from visited set before backtracking
-      visited.delete(endpointId);
-      return totalLatency;
-    }
-
-    // Start DFS traversal from the entry point
-    dfs(entryPointId, initialRequestCount);
-
-    return { entryPointId, stats };
+    return minuteRequestCounts;
   }
 
   private extractServiceIdFromEndpointId(endpointId: string): string {
@@ -589,57 +323,5 @@ export default class LoadSimulationHandler {
     const totalErrorRate = data.baseErrorRate + (1 - data.baseErrorRate) * serviceOverloadErrorRate;
 
     return Math.min(1, totalErrorRate);
-  }
-
-  private computeLatencyCV(
-    baseLatency: number,
-    count: number
-  ): { scaledMean: number; scaledDivBase: number; cv: number; scaleLevel: number } {
-    if (count <= 0) return { scaledMean: 0, scaledDivBase: 0, cv: 0, scaleLevel: 0 };
-
-    // Generate jittered latencies
-    const latencies: number[] = [];
-    for (let i = 0; i < count; i++) {
-      // Apply ±10% random fluctuation around baseLatency
-      const jittered = Math.round(baseLatency * (0.9 + Math.random() * 0.2));
-      latencies.push(jittered);
-    }
-
-    // Calculate scaleFactor and scaleLevel based on the range of latencies
-    const { scaleFactor, scaleLevel } = this.calculateScaleFactor(latencies);
-
-    // Apply the same scaling factor to all latency samples
-    const scaled = latencies.map(l => l / scaleFactor);
-
-    // Compute mean and sum of squares (divBase) on the scaled values
-    const sum = scaled.reduce((s, v) => s + v, 0);
-    const mean = sum / count;
-    const divBase = scaled.reduce((s, v) => s + v * v, 0);
-
-    // Compute variance and coefficient of variation (CV)
-    const variance = divBase / count - mean * mean;
-    const cv = mean > 0 ? Math.sqrt(variance) / mean : 0;
-
-    return {
-      scaledMean: Utils.ToPrecise(mean),
-      scaledDivBase: Utils.ToPrecise(divBase),
-      cv: Utils.ToPrecise(cv),
-      scaleLevel
-    };
-  }
-
-  private calculateScaleFactor(latencies: number[]): { scaleFactor: number; scaleLevel: number } {
-    if (latencies.length === 0) return { scaleFactor: 1, scaleLevel: 0 };
-    const minLatency = Math.min(...latencies);
-    const maxLatency = Math.max(...latencies);
-    if (minLatency <= 0 || maxLatency <= 0) return { scaleFactor: 1, scaleLevel: 0 };
-    const minExp = Math.floor(Math.log10(minLatency));
-    const maxExp = Math.floor(Math.log10(maxLatency));
-    if (maxExp > 0) {
-      return { scaleFactor: Math.pow(10, maxExp), scaleLevel: maxExp };
-    } else if (minExp < 0) {
-      return { scaleFactor: Math.pow(10, minExp), scaleLevel: minExp };
-    }
-    return { scaleFactor: 1, scaleLevel: 0 };
   }
 }

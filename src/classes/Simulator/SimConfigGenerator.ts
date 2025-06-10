@@ -129,7 +129,7 @@ export default class SimConfigGenerator {
       }
 
       const responses: TSimulationResponseBody[] = schemas.map(schema => ({
-        status: Number(schema.status),
+        status: schema.status,
         responseContentType: schema.responseContentType || "",
         responseBody:
           schema.responseContentType === "application/json"

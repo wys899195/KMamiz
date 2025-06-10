@@ -41,7 +41,7 @@ export default class Simulator {
     endpointDependencies: TEndpointDependency[];
     dataType: EndpointDataType[];
     replicaCountList: TReplicaCount[];
-    realtimeCombinedDataPerHourMap: Map<string, TCombinedRealtimeData[]>
+    realtimeCombinedDataPerMinuteMap: Map<string, TCombinedRealtimeData[]>
   } {
     const { errorMessage, parsedConfig } =
       SimulationConfigManager.getInstance().validateAndPrerocessSimConfig(configYamlString);
@@ -53,7 +53,7 @@ export default class Simulator {
         endpointDependencies: [],
         dataType: [],
         replicaCountList: [],
-        realtimeCombinedDataPerHourMap: new Map(),
+        realtimeCombinedDataPerMinuteMap: new Map(),
       };
     }
 
@@ -75,11 +75,11 @@ export default class Simulator {
         simulateDate
       )
 
-    let realtimeCombinedDataPerHourMap: Map<string, TCombinedRealtimeData[]> = new Map();
+    let realtimeCombinedDataPerMinuteMap: Map<string, TCombinedRealtimeData[]> = new Map();
 
     if (parsedConfig.loadSimulation && parsedConfig.loadSimulation.endpointMetrics.length > 0) {
-      realtimeCombinedDataPerHourMap =
-        LoadSimulationHandler.getInstance().generateHourlyCombinedRealtimeDataMap(
+      realtimeCombinedDataPerMinuteMap =
+        LoadSimulationHandler.getInstance().generateMinuteCombinedRealtimeDataMap(
           parsedConfig.loadSimulation,
           dependOnMap,
           replicaCountList,
@@ -97,7 +97,7 @@ export default class Simulator {
           endpointDependencies
         ),
         replicaCountList,
-        realtimeCombinedDataPerHourMap: realtimeCombinedDataPerHourMap
+        realtimeCombinedDataPerMinuteMap
       };
     } catch (err) {
       const errMsg = `${err instanceof Error ? err.message : err}`;
@@ -110,7 +110,7 @@ export default class Simulator {
         endpointDependencies: [],
         dataType: [],
         replicaCountList: [],
-        realtimeCombinedDataPerHourMap: new Map(),
+        realtimeCombinedDataPerMinuteMap: new Map(),
       };
     }
   }

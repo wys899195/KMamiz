@@ -25,7 +25,7 @@ const statusCodeSchema = z.union([
   }, {
     message: "Invalid status. It must be an integer string between 100 and 599.",
   }),
-]);;
+]).transform((val) => String(val));
 export const simulationResponseBodySchema = z.object({
   status: statusCodeSchema,
   responseContentType: z.string(),
@@ -155,7 +155,7 @@ export type TSimulationNamespace = z.infer<typeof simulationNamespaceSchema>;
 export type TSimulationDependOn = z.infer<typeof simulationDependOnSchema>;
 export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
 
-//  Load Simulation
+//  Load Simulation config
 export type TLoadSimulationConfig = z.infer<typeof loadSimulationConfigSchema>;
 export type TSimulationServiceVersionMetric = z.infer<typeof simulationServiceVersionMetricSchema>;
 export type TSimulationServiceMetric = z.infer<typeof simulationServiceMetricSchema>;

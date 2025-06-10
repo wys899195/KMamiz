@@ -10,6 +10,7 @@ import {
 } from "../../entities/TSimulationConfig";
 
 export default class SimConfigValidator {
+  
   parseAndValidateRawYAML(yamlString: string): TSimulationConfigProcessResult {
     if (!yamlString.trim()) {
       return {
