@@ -3,13 +3,6 @@ import { requestType } from "./TRequestType";
 import { z } from "zod";
 
 /**** Yaml format checking ****/
-const timeSliceMinutesSchema = z
-  .number()
-  .refine((val) => [1, 5, 10, 15, 20, 30, 60].includes(val), {
-    message: "timeSliceMinutes must be one of: 1, 5, 10, 15, 20, 30, 60",
-  }
-  );
-
 const endpointIdSchema = z.preprocess(
   (val) => (typeof val === "number" ? val.toString() : val),
   z.string()
@@ -99,7 +92,6 @@ export const loadSimulationConfigSchema = z.object({
     .min(1, { message: "simulationDurationInDays must be at least 1." })
     .max(7, { message: "simulationDurationInDays cannot exceed 7." })
     .optional(),
-  timeSliceMinutes: timeSliceMinutesSchema.optional(),
   mutationRatePercentage: z
     .number()
     .refine((val) => val >= 0 && val <= 100, {

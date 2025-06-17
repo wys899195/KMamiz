@@ -98,7 +98,6 @@ export default class LoadSimulationHandler {
     }
 
     const simulationDurationInDays = loadSimulationConfig?.simulationDurationInDays ?? 1;
-    const timeSliceMinutes = loadSimulationConfig?.timeSliceMinutes ?? 5;
     const mutationRatePercentage = loadSimulationConfig?.mutationRatePercentage ?? 25;
     const MUTATION_SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
     const probabilityOfMutation = mutationRatePercentage / 100;
@@ -136,7 +135,7 @@ export default class LoadSimulationHandler {
           baseDailyRequestCount * mutationScaleRate
         );
 
-        this.updateRequestCountsMap(RequestCountsMap, day, realRequestCountForThisday, timeSliceMinutes);
+        this.updateRequestCountsMap(RequestCountsMap, day, realRequestCountForThisday);
       }
 
       entryEndpointDailyRequestCountsMap.set(endpointId, RequestCountsMap);
@@ -250,17 +249,9 @@ export default class LoadSimulationHandler {
     RequestCountsMap: Map<string, number>,
     day: number,
     realRequestCountForThisDay: number,
-    timeSliceMinutes: number,
   ) {
 
-    /*
-      timeSliceMinutes: 
-        Minimum time interval length in minutes (must be a divisor of 60).For example,
-        if set to 5, data will be generated every 5 minutes.
-    */
-    const hours = 24;
-    const intervalsPerHour = 60 / timeSliceMinutes;
-    const totalIntervals = hours * intervalsPerHour;
+    const totalIntervals = 24;
 
     if (realRequestCountForThisDay === 0) {
       return;
@@ -271,12 +262,13 @@ export default class LoadSimulationHandler {
     const totalWeight = weights.reduce((sum, w) => sum + w, 0);
     const normalizeWeights = weights.map(w => w / totalWeight);
 
-    const flatRequestCounts: number[] =
-      normalizeWeights.map(w => Math.round(w * realRequestCountForThisDay));
+    const flatRequestCounts: number[] = normalizeWeights.map(
+      w => Math.round(w * realRequestCountForThisDay)
+    );
 
     // Fix rounding error
-    let diff = realRequestCountForThisDay
-      - flatRequestCounts.reduce((a, b) => a + b, 0);
+    let diff = realRequestCountForThisDay -
+      flatRequestCounts.reduce((a, b) => a + b, 0);
 
     if (diff !== 0) {
       const indices = Array.from({ length: totalIntervals }, (_, i) => i);
@@ -306,13 +298,10 @@ export default class LoadSimulationHandler {
     for (let intervalIndex = 0; intervalIndex < totalIntervals; intervalIndex++) {
       const count = flatRequestCounts[intervalIndex];
       if (count > 0) {
-        const hour = Math.floor(intervalIndex / intervalsPerHour);
-        // Calculate minutes based on the minimum time interval
-        // For example, if the interval is 10 minutes, then minute 19 falls into the 10-minute slot representing 10–19 minutes.
-        const minute = (intervalIndex % intervalsPerHour) * timeSliceMinutes;
+        const hour = intervalIndex;
 
         // Create key in the format "day-hour-minute"
-        const key = `${day}-${hour}-${minute}`;
+        const key = `${day}-${hour}-0`;
         RequestCountsMap.set(key, count);
       }
     }
