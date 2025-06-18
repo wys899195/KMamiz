@@ -15,11 +15,10 @@ export type TBaseDataWithResponses = {
 }
 
 
-
-/* TTrafficSimulationResult */
-// Represents request statistics for a specific endpoint during a particular minutes
-export type TEndpointTrafficStats = {
+export type TEndpointPropagationStatsForOneTimeSlot = {
   requestCount: number;
-  errorCount: number;
-  maxLatency: number;
+  ownErrorCount: number;        // Number of errors originating from the endpointNode itself
+  downstreamErrorCount: number; // Number of errors caused by downstream endpointNodes
+  latencyStatsByStatus: Map<string, { mean: number; cv: number }>; //Key: status code, Value: latency statistics (mean and coefficient of variation) for all requests with this status code
+
 };

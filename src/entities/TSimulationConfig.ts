@@ -3,6 +3,11 @@ import { requestType } from "./TRequestType";
 import { z } from "zod";
 
 /**** Yaml format checking ****/
+const fallbackStrategies = [
+  "failIfAnyDependentFail",
+  "failIfAllDependentFail",
+  "ignoreDependentFail",
+] as const;
 const endpointIdSchema = z.preprocess(
   (val) => (typeof val === "number" ? val.toString() : val),
   z.string()
@@ -132,10 +137,7 @@ export const simulationEndpointMetricSchema = z.object({
     .int({ message: "expectedExternalDailyRequestCount must be an integer." })
     .min(0, { message: "expectedExternalDailyRequestCount cannot be negative." })
     .optional().default(0),
-  fallbackEnabled: z
-    .boolean()
-    .optional().default(false),
-
+  fallbackStrategy: z.enum(fallbackStrategies).optional().default(fallbackStrategies[0]),
 }).strict();
 
 export const loadSimulationSchema = z.object({
@@ -187,3 +189,5 @@ export type TSimulationConfigProcessResult = {
 }
 
 export type BodyInputType = "sample" | "typeDefinition" | "empty" | "unknown";
+
+export type TFallbackStrategy = typeof fallbackStrategies[number];

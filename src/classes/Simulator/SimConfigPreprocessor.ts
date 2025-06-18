@@ -3,7 +3,8 @@ import {
   TSimulationConfigErrors,
   TSimulationEndpointMetric,
   TSimulationConfigProcessResult,
-  BodyInputType
+  BodyInputType,
+  TFallbackStrategy
 } from "../../entities/TSimulationConfig";
 
 export default class SimConfigPreprocessor {
@@ -46,7 +47,6 @@ export default class SimConfigPreprocessor {
           });
         });
       });
-      console.log("allEndpointIds", allEndpointIds);
 
       if (!parsedConfig.loadSimulation) {
         parsedConfig.loadSimulation = {
@@ -60,18 +60,16 @@ export default class SimConfigPreprocessor {
 
       const missingEndpointIds = Array.from(allEndpointIds).filter(id => !existingMetricIds.has(id));
 
-      console.log("missingEndpointIds", missingEndpointIds);
-
       const defaultMetrics = missingEndpointIds.map(id => ({
         endpointId: id,
         latencyMs: 0,
         expectedExternalDailyRequestCount: 0,
         errorRatePercentage: 0,
-        fallbackEnabled: false,
+        fallbackStrategy:  "failIfAnyDependentFail" as TFallbackStrategy
       }));
-      console.log("defaultMetrics", defaultMetrics);
+
       parsedConfig.loadSimulation.endpointMetrics = [...endpointMetrics, ...defaultMetrics];
-      console.log("final config", parsedConfig);
+
       return {
         errorMessage: "",
         parsedConfig: parsedConfig,
