@@ -46,10 +46,8 @@ export class HistoricalData {
               ...base,
               combined: normal,
               latency: {
-                scaledMean: 1,
-                scaledDivBase: Math.pow(e.latencyCV, 2) * normal,
+                mean: 100,
                 cv: e.latencyCV,
-                scaleLevel: 0
               },
               status: "200",
             });
@@ -60,10 +58,8 @@ export class HistoricalData {
               ...base,
               combined: e.requestErrors,
               latency: {
-                scaledMean: 1,
-                scaledDivBase: Math.pow(e.latencyCV, 2) * e.requestErrors,
+                mean: 100,
                 cv: e.latencyCV,
-                scaleLevel: 0
               },
               status: "400",
             });
@@ -74,10 +70,8 @@ export class HistoricalData {
               ...base,
               combined: e.serverErrors,
               latency: {
-                scaledMean: 1,
-                scaledDivBase: Math.pow(e.latencyCV, 2) * e.serverErrors,
+                mean: 100,
                 cv: e.latencyCV,
-                scaleLevel: 0
               },
               status: "500",
             });

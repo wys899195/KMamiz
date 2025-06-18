@@ -88,11 +88,11 @@ export default class CombinedRealtimeDataList {
           },
           { requests: 0, requestErrors: 0, serverErrors: 0 }
         );
-        const validLatencies = r.filter(rl => rl.latency.scaledMean !== undefined && rl.latency.scaledMean !== null);
-        const meanLatency = validLatencies.reduce((sum, rl) => sum + (Utils.ToPrecise(rl.latency.scaledMean * Math.pow(10,rl.latency.scaleLevel))), 0) / validLatencies.length;
+        const validLatencies = r.filter(rl => rl.latency.mean !== undefined && rl.latency.mean !== null);
+        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
 
         return {
-          latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency: 0,
+          latencyMean: (typeof (meanLatency) === "number" && isFinite(meanLatency)) ? meanLatency : 0,
           latencyCV: Math.max(...r.map((rl) => rl.latency.cv || 0)),
           method: method as TRequestTypeUpper,
           requestErrors,
@@ -126,9 +126,9 @@ export default class CombinedRealtimeDataList {
           },
           { requests: 0, requestErrors: 0, serverErrors: 0 }
         );
-        const validLatencies = r.filter(rl => typeof(rl.latency.scaledMean) ==="number" && isFinite(rl.latency.scaledMean));
-        const meanLatency = validLatencies.reduce((sum, rl) => sum + (Utils.ToPrecise(rl.latency.scaledMean * Math.pow(10,rl.latency.scaleLevel))), 0) / validLatencies.length;
-        
+        const validLatencies = r.filter(rl => typeof (rl.latency.mean) === "number" && isFinite(rl.latency.mean));
+        const meanLatency = validLatencies.reduce((sum, rl) => sum + rl.latency.mean, 0) / validLatencies.length;
+
         return {
           date: new Date(time),
           endpoints,
@@ -138,7 +138,7 @@ export default class CombinedRealtimeDataList {
           requests,
           requestErrors,
           serverErrors,
-          latencyMean: (typeof(meanLatency) ==="number" && isFinite(meanLatency)) ? meanLatency: 0,
+          latencyMean: (typeof (meanLatency) === "number" && isFinite(meanLatency)) ? meanLatency : 0,
           latencyCV: Math.max(...r.map((rl) => rl.latency.cv || 0)),
           uniqueServiceName,
           risk: risks.find(
@@ -229,39 +229,20 @@ export default class CombinedRealtimeDataList {
           return prev;
         });
 
-
-        const shiftScaleLevel = Math.min(...group.map(g => g.latency.scaleLevel));
-        let totalCount = 0;
-        let totalMean = 0;
-        let totalDivBase = 0;
-
-        group.forEach(curr => {
-          const count = curr.combined;
-          totalCount += count;
-    
-          const adjustedScaleLevel = curr.latency.scaleLevel - shiftScaleLevel;
-          const scaleFactor = Math.pow(10, adjustedScaleLevel);
-    
-          const mean = curr.latency.scaledMean * scaleFactor;
-          const divBase = curr.latency.scaledDivBase * Math.pow(scaleFactor, 2);
-    
-          totalMean += mean * count;
-          totalDivBase += divBase;
-        });
-
-        totalMean = totalMean / totalCount;
-        const { scaleFactor, scaleLevel } = this.calculateScaleFactor(totalMean);
-        const finalScaleLevel = shiftScaleLevel + scaleLevel;
-
-
-        const finalMean = Utils.ToPrecise(totalMean / scaleFactor);
-        const finalDivBase = Utils.ToPrecise(totalDivBase / Math.pow(scaleFactor, 2));
-        const cv =
-          Utils.ToPrecise(
-            Math.sqrt(
-              finalDivBase / totalCount - Math.pow(finalMean, 2)
-            ) / finalMean
-          ) || 0;
+        const mergedLatency = group.reduce(
+          (acc, curr) => {
+            return {
+              ...this.combineLatencyCVAndMean(acc.n, acc.mean, acc.cv,
+                curr.combined, curr.latency.mean, curr.latency.cv),
+              n: acc.n + curr.combined,
+            };
+          },
+          {
+            mean: 0,
+            cv: 0,
+            n: 0,
+          }
+        );
 
         return {
           ...baseSample,
@@ -271,22 +252,14 @@ export default class CombinedRealtimeDataList {
           responseBody: combined.responseBody,
           responseSchema: combined.responseSchema,
           latency: {
-            scaledMean: finalMean,
-            scaledDivBase: finalDivBase,
-            cv,
-            scaleLevel: finalScaleLevel
+            mean: Utils.ToPrecise(mergedLatency.mean),
+            cv: Utils.ToPrecise(mergedLatency.cv),
           },
         };
       }
     );
 
     return new CombinedRealtimeDataList(combined);
-  }
-
-  calculateScaleFactor(value: number): { scaleFactor: number; scaleLevel: number } {
-    if (value <= 0) return { scaleFactor: 1, scaleLevel: 0 };
-    const exp = Math.floor(Math.log10(value));
-    return { scaleFactor: Math.pow(10, exp), scaleLevel: exp };
   }
 
   getContainingNamespaces() {
@@ -300,5 +273,61 @@ export default class CombinedRealtimeDataList {
         latestTimestamp: to * 1000,
       }))
     );
+  }
+
+  private combineLatencyCVAndMean(
+    n1: number, mean1: number, cv1: number,
+    n2: number, mean2: number, cv2: number
+  ): { mean: number, cv: number } {
+
+    /*
+      To avoid overflow or floating point precision issues when calculating CV,
+      temporarily scale the values to similar magnitudes
+    */
+    const shift = this.getScaleShift(mean1, mean2);
+    const scale = Math.pow(10, shift);
+
+    const mean1s = mean1 / scale;
+    const mean2s = mean2 / scale;
+    const std1s = cv1 * mean1s;
+    const std2s = cv2 * mean2s;
+
+    const totalN = n1 + n2;
+    const meanTotal = (n1 * mean1s + n2 * mean2s) / totalN;
+
+    const variance1 = std1s ** 2;
+    const variance2 = std2s ** 2;
+
+    //Merge variants
+    const pooledVariance =
+      (n1 * variance1 +
+        n2 * variance2 +
+        n1 * (mean1s - meanTotal) ** 2 +
+        n2 * (mean2s - meanTotal) ** 2) / totalN;
+
+    const stdTotal = Math.sqrt(pooledVariance);
+    const cvTotal = meanTotal === 0 ? 0 : stdTotal / meanTotal;
+
+    return {
+      mean: meanTotal * scale,
+      cv: cvTotal,
+    };
+  }
+
+  /* 
+    Get the average logarithmic scale (base 10) of two mean values
+    This is used to scale both values to a similar order of magnitude,
+    reducing overflow or floating point precision errors
+  */
+  private getScaleShift(mean1: number, mean2: number): number {
+    const safeLog10 = (x: number) => {
+      if (x <= 0) return 0;
+      return Math.floor(Math.log10(x));
+    };
+
+    const exp1 = safeLog10(mean1);
+    const exp2 = safeLog10(mean2);
+
+    return Math.floor((exp1 + exp2) / 2);
   }
 }

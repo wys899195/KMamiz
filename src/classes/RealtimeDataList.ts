@@ -18,21 +18,6 @@ export class RealtimeDataList {
     return new Set(this._realtimeData.map((r) => r.namespace));
   }
 
-  //to avoid standard deviation growing too fast causing overflow
-  calculateScaleFactor(latencies: number[]): { scaleFactor: number; scaleLevel: number } {
-    if (latencies.length === 0) return { scaleFactor: 1, scaleLevel: 0 };
-    const minLatency = Math.min(...latencies);
-    const maxLatency = Math.max(...latencies);
-    if (minLatency <= 0 || maxLatency <= 0) return { scaleFactor: 1, scaleLevel: 0 };
-    const minExp = Math.floor(Math.log10(minLatency));
-    const maxExp = Math.floor(Math.log10(maxLatency));
-    if (maxExp > 0) {
-      return { scaleFactor: Math.pow(10, maxExp), scaleLevel: maxExp };
-    } else if (minExp < 0) {
-      return { scaleFactor: Math.pow(10, minExp), scaleLevel: minExp };
-    }
-    return { scaleFactor: 1, scaleLevel: 0 };
-  }
 
   toCombinedRealtimeData() {
     const uniqueNameMapping = new Map<string, TRealtimeData[]>();
@@ -62,19 +47,8 @@ export class RealtimeDataList {
 
             const latencies = subGroup.map((r) => r.latency);
 
-            // Scale latency values to avoid overflow in variance calculation when latencies are large
-            const { scaleFactor, scaleLevel } = this.calculateScaleFactor(latencies);
-            const scaledLatencies = scaleFactor === 1 ? latencies : latencies.map(l => l / scaleFactor);
-            const latencyDivBaseScaled = Utils.ToPrecise(
-              scaledLatencies.reduce((prev, curr) => prev + curr * curr, 0)
-            );
-            const latencyMeanScaled = Utils.ToPrecise(
-              scaledLatencies.reduce((prev, curr) => prev + curr, 0) / scaledLatencies.length
-            );
-            const cv = Utils.ToPrecise(
-              Math.sqrt(latencyDivBaseScaled / scaledLatencies.length - Math.pow(latencyMeanScaled, 2))
-              / latencyMeanScaled
-            ) || 0;
+            const { mean, cv } = this.computeMeanAndCVByWelford(latencies);
+
 
             const combined = subGroup.reduce((prev, curr) => {
               const acc = { ...prev };
@@ -107,10 +81,8 @@ export class RealtimeDataList {
                 : undefined,
               latestTimestamp: combined.timestamp,
               latency: {
-                scaledMean: latencyMeanScaled,
-                scaledDivBase: latencyDivBaseScaled,
-                cv,
-                scaleLevel: scaleLevel,
+                mean: Utils.ToPrecise(mean),
+                cv: Utils.ToPrecise(cv),
               },
               requestContentType: combined.requestContentType,
               responseContentType: combined.responseContentType,
@@ -122,6 +94,27 @@ export class RealtimeDataList {
       .flat();
 
     return new CombinedRealtimeDataList(combined);
+  }
+
+  // Use Welford's algorithm to calculate CV and avoid overflow issues when computing variance
+  private computeMeanAndCVByWelford(latencies: number[]): { mean: number, cv: number } {
+    if (latencies.length === 0) return { mean: 0, cv: 0 };
+
+    let mean = 0;
+    let sumSqDiff = 0;
+
+    for (let i = 0; i < latencies.length; i++) {
+      const x = latencies[i];
+      const oldMean = mean;
+      mean += (x - mean) / (i + 1);
+      sumSqDiff += (x - mean) * (x - oldMean);
+    }
+
+    const variance = sumSqDiff / latencies.length;
+    const stdDev = Math.sqrt(variance);
+    const cv = mean !== 0 ? stdDev / mean : 0;
+
+    return { mean, cv };
   }
 
   static parseRequestResponseBody(data: Partial<TRealtimeData>): {

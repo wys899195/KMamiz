@@ -11,10 +11,8 @@ export type TCombinedRealtimeData = {
   namespace: string;
   version: string;
   latency: {
-    scaledMean: number; // = (Original Mean Latency) / 10^scaleLevel
-    scaledDivBase: number; // = (Sum of Squared Original Latencies) / 10^(2 * scaleLevel)
+    mean: number;
     cv: number;
-    scaleLevel: number; // Exponent for scaling latency values (by 10^scaleLevel) to prevent numeric overflow in variance calculations
   };
   status: string;
   combined: number;

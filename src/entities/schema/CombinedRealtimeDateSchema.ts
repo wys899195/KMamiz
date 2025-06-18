@@ -10,10 +10,8 @@ export const CombinedRealtimeDataSchema = new Schema<TCombinedRealtimeData>({
   namespace: { type: String, required: true },
   version: { type: String, required: true },
   latency: {
-    scaledMean: { type: Number, required: true },
-    scaledDivBase: { type: Number, required: true },
+    mean: { type: Number, required: true },
     cv: { type: Number, required: true },
-    scaleLevel: { type: Number, required: true },
   },
   status: { type: String, required: true },
   combined: { type: Number, required: true },

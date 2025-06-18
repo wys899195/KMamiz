@@ -4470,10 +4470,6 @@ const MockBaseRlData1: TRealtimeData[] = [
   },
 ];
 
-const divBaseData1 = [100, 120, 80, 100, 120, 80, 120, 80, 120, 80].reduce(
-  (prev, curr) => prev + Math.pow(curr, 2),
-  0
-) / 10000;
 const MockBaseCrlData1: TCombinedRealtimeData[] = [
   {
     service: Service,
@@ -4482,10 +4478,8 @@ const MockBaseCrlData1: TCombinedRealtimeData[] = [
     latestTimestamp: Yesterday * 1000,
     combined: 10,
     latency: {
-      scaledMean: 1,
-      scaledDivBase: divBaseData1,
+      mean: 100,
       cv: 0.17888543819998,
-      scaleLevel: 2,
     },
     method: Method,
     status: Status,
@@ -4503,7 +4497,7 @@ const MockBaseCrlData1: TCombinedRealtimeData[] = [
 const divBaseData2 = [150, 170, 130, 130, 170, 150, 120, 180, 120, 180].reduce(
   (prev, curr) => prev + Math.pow(curr, 2),
   0
-) / 10000;
+);
 const MockBaseCrlData2: TCombinedRealtimeData[] = [
   {
     service: Service,
@@ -4512,10 +4506,8 @@ const MockBaseCrlData2: TCombinedRealtimeData[] = [
     latestTimestamp: Today * 1000,
     combined: 10,
     latency: {
-      scaledMean: 1.5,
-      scaledDivBase: divBaseData2,
-      cv: Math.sqrt(divBaseData2 / 10 - Math.pow(1.5, 2)) / 1.5,
-      scaleLevel: 2,
+      mean: 150,
+      cv: Math.sqrt(divBaseData2 / 10 - Math.pow(150, 2)) / 150,
     },
     method: Method,
     status: Status,
@@ -4530,10 +4522,7 @@ const MockBaseCrlData2: TCombinedRealtimeData[] = [
     responseSchema: Utils.ObjectToInterfaceString({ name: "string" }),
   },
 ];
-const divBaseBaseData = Utils.ToPrecise([
-  100, 120, 80, 100, 120, 80, 120, 80, 120, 80, 150, 170, 130, 130, 170, 150,
-  120, 180, 120, 180,
-].reduce((prev, curr) => prev + Math.pow(curr, 2), 0) / 10000);
+
 const MockCombinedBaseData: TCombinedRealtimeData[] = [
   {
     uniqueEndpointName: UniqueEndpointName,
@@ -4552,10 +4541,8 @@ const MockCombinedBaseData: TCombinedRealtimeData[] = [
     responseBody: { name: "test response" },
     responseSchema: Utils.ObjectToInterfaceString({ name: "string" }),
     latency: {
-      scaledMean: 1.25,
-      scaledDivBase: divBaseBaseData,
+      mean: 125,
       cv: 0.25861167800391,
-      scaleLevel: 2,
     },
   },
 ];
