@@ -7,10 +7,11 @@ import {
   simulationConfigYAMLSchema,
   TSimulationConfigErrors,
   TSimulationConfigProcessResult,
+  TSimulationEndpointDependency,
 } from "../../entities/TSimulationConfig";
 
 export default class SimConfigValidator {
-  
+
   parseAndValidateRawYAML(yamlString: string): TSimulationConfigProcessResult {
     if (!yamlString.trim()) {
       return {
@@ -77,8 +78,10 @@ export default class SimConfigValidator {
 
     // Validate endpoint dependencies
     // Ensures that all referenced endpoints exist and dependencies are correctly defined.
-    const dependencyErrors = this.validateEndpointDependencies(parsedConfig, allDefinedEndpointIds);
+    const dependencyErrors = this.validateEndpointDependenciesFormat(parsedConfig, allDefinedEndpointIds);
     if (dependencyErrors.length) return dependencyErrors;
+    const cyclicDependenciesErrors = this.validateCyclicEndpointDependencies(parsedConfig.endpointDependencies);
+    if (cyclicDependenciesErrors.length) return cyclicDependenciesErrors;
 
     // Validate LoadSimulation settings
     // Includes checking service metrics to verify services exist and no duplicates,
@@ -162,14 +165,14 @@ export default class SimConfigValidator {
     }
   }
 
-  private validateEndpointDependencies(parsedConfig: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
+  private validateEndpointDependenciesFormat(parsedConfig: TSimulationConfigYAML, allDefinedEndpointIds: Set<string>): TSimulationConfigErrors[] {
     // Check that source endpointId is defined in servicesInfo
     // Check that each target endpointId in dependOn is defined in servicesInfo
     // Ensure no endpoint depends on itself
     // Check for duplicate source endpointIds within endpointDependencies
     const errorMessages: TSimulationConfigErrors[] = [];
     const seenSourceEndpointIds = new Set<string>();
-    parsedConfig.endpointDependencies?.forEach((dep, index) => {
+    parsedConfig.endpointDependencies.forEach((dep, index) => {
       const errorLocation = `endpointDependencies[${index}]`;
       if (!allDefinedEndpointIds.has(dep.endpointId)) {
         errorMessages.push({
@@ -194,7 +197,7 @@ export default class SimConfigValidator {
         }
       });
     });
-    parsedConfig.endpointDependencies?.forEach((dep, index) => {
+    parsedConfig.endpointDependencies.forEach((dep, index) => {
       const sourceId = dep.endpointId;
       const errorLocation = `endpointDependencies[${index}]`;
 
@@ -208,6 +211,74 @@ export default class SimConfigValidator {
       }
     });
 
+    return errorMessages;
+  }
+
+  private validateCyclicEndpointDependencies(
+    endpointDependencies: TSimulationEndpointDependency[],
+  ): TSimulationConfigErrors[] {
+    // Store all detected error messages
+    const errorMessages: TSimulationConfigErrors[] = [];
+
+    // Create a dependency graph using Map,
+    // where each endpoint maps to the list of endpoint IDs it depends on
+    const dependencyGraph = new Map<string, string[]>();
+
+    // Convert endpointDependencies into a graph structure
+    endpointDependencies.forEach(dep => {
+      dependencyGraph.set(dep.endpointId, dep.dependOn.map(d => d.endpointId));
+    });
+
+    // Track already reported cycles to avoid duplicate error messages
+    const reportedCycles = new Set<string>();
+
+    /**
+     * Depth-First Search (DFS) for detecting Cyclic dependencies
+     * @param node The current node being visited
+     * @param currentPath The current DFS traversal path
+     * @param visited A set of nodes visited in the current DFS path
+     */
+    function dfsForDetectCycle(node: string, currentPath: string[], visited: Set<string>) {
+      currentPath.push(node); // Add the current node to the DFS path
+      visited.add(node);      // Mark the node as visited (within this DFS path)
+
+      // Get the list of neighboring nodes (dependencies)
+      const neighbors = dependencyGraph.get(node) || [];
+      for (const neighbor of neighbors) {
+        if (!visited.has(neighbor)) {
+          // If the neighbor hasn't been visited in this path, continue DFS
+          dfsForDetectCycle(neighbor, currentPath, visited);
+        } else {
+          // If the neighbor is already in the current path, a cycle is detected
+          const cycleStartIndex = currentPath.indexOf(neighbor);
+          if (cycleStartIndex !== -1) {
+            // Extract the cycle path from the path and complete the loop
+            const cyclePath = currentPath.slice(cycleStartIndex).concat(neighbor);
+
+            // Normalize the cycle path using sorted unique nodes to prevent duplicate reports
+            const normalizedCycle = [...new Set(cyclePath)].sort().join("->");
+            if (!reportedCycles.has(normalizedCycle)) {
+              reportedCycles.add(normalizedCycle);
+              errorMessages.push({
+                errorLocation: `endpointDependencies`,
+                message: `Cyclic dependency detected: ${cyclePath.join(" -> ")}`,
+              });
+            }
+          }
+        }
+      }
+
+      // Backtrack: remove the current node from path and visited set
+      currentPath.pop();
+      visited.delete(node);
+    }
+
+    // Iterate through all nodes and perform DFS to detect cycles
+    for (const node of dependencyGraph.keys()) {
+      dfsForDetectCycle(node, [], new Set());
+    }
+
+    // Return all detected error messages
     return errorMessages;
   }
 
@@ -353,7 +424,7 @@ export default class SimConfigValidator {
     });
 
     // Replace endpointIds in endpointDependencies
-    parsedConfig.endpointDependencies?.forEach((dep, index) => {
+    parsedConfig.endpointDependencies.forEach((dep, index) => {
       const originalSourceId = dep.endpointId;
       const mappedSourceId = endpointIdToUniqueNameMap.get(originalSourceId);
       const sourceLocation = `endpointDependencies[${index}].endpointId`;
