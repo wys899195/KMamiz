@@ -20,6 +20,8 @@ export default class LoadSimulationHandler {
   private static instance?: LoadSimulationHandler;
   static getInstance = () => this.instance || (this.instance = new this());
 
+  private static readonly MUTATION_SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
+
   private dataGenerator: LoadSimulationDataGenerator;
   private propagator: LoadSimulationPropagator;
 
@@ -125,10 +127,7 @@ export default class LoadSimulationHandler {
     }
 
     const simulationDurationInDays = loadSimulationConfig?.simulationDurationInDays ?? 1;
-    const mutationRatePercentage = loadSimulationConfig?.mutationRatePercentage ?? 25;
-    const MUTATION_SCALE_FACTORS = [0.25, 0.5, 2, 3, 4, 5];
-    const probabilityOfMutation = mutationRatePercentage / 100;
-
+    const probabilityOfMutation = (loadSimulationConfig?.mutationRatePercentage ?? 25) / 100;
 
     for (const metric of endpointMetrics) {
       const endpointId = metric.endpointId;
@@ -152,20 +151,15 @@ export default class LoadSimulationHandler {
 
       // Currently uses 24 intervals per day (i.e., 1-hour intervals)
       for (let day = 0; day < simulationDurationInDays; day++) {
-        const isMutated = Math.random() < probabilityOfMutation;
-        const mutationScaleRate = isMutated
-          ? MUTATION_SCALE_FACTORS[Math.floor(Math.random() * MUTATION_SCALE_FACTORS.length)]
-          : 1;
 
-        const realRequestCountForThisDay = Math.round(
-          baseDailyRequestCount * mutationScaleRate
-        );
+        const realRequestCountForThisDay = Math.round(baseDailyRequestCount);
 
         this.updateRequestCountsMapByTimeSlot(
           entryEndpointRequestCountsMapByTimeSlot,
           day,
           endpointId,
-          realRequestCountForThisDay
+          realRequestCountForThisDay,
+          probabilityOfMutation
         );
       }
     }
@@ -179,6 +173,7 @@ export default class LoadSimulationHandler {
     day: number,
     endpointId: string,
     realRequestCountForThisDay: number,
+    probabilityOfMutation: number,
   ) {
 
     const totalIntervals = 24;
@@ -218,10 +213,21 @@ export default class LoadSimulationHandler {
     }
 
     // Convert time intervals with request counts into a Map, with keys formatted as "day-hour-minuteStart"
-    for (let intervalIndex = 0; intervalIndex < totalIntervals; intervalIndex++) {
-      const count = flatRequestCounts[intervalIndex];
+    // And apply per-hour mutation
+
+    for (let hour = 0; hour < totalIntervals; hour++) {
+      let count = flatRequestCounts[hour];
       if (count > 0) {
-        const hour = intervalIndex;
+        console.log()
+        // request count mutation
+        // console.log("probabilityOfMutatio", probabilityOfMutation)
+        const isMutated = Math.random() < probabilityOfMutation;
+        if (isMutated) {
+          const scale = LoadSimulationHandler.MUTATION_SCALE_FACTORS[Math.floor(Math.random() * LoadSimulationHandler.MUTATION_SCALE_FACTORS.length)];
+          // console.log("count b",count)
+          count = Math.round(count * scale);
+          // console.log("count a",count)
+        }
 
         // Create key in the format "day-hour-minute"
         const key = `${day}-${hour}-0`;
@@ -250,7 +256,8 @@ export default class LoadSimulationHandler {
      * Value: number - The aggregated request count for that specific service during the time interval.
      */
 
-    // 用來儲存最終統計結果，key 是時間戳，value 是該時間戳下各 service 的請求數
+    // Used to store the final statistical results. The key is the timestamp and the value 
+    // is the number of requests for each service at that timestamp.
     const serviceRequestCountsPerMinute = new Map<string, Map<string, number>>();
 
     for (const [dayHourMinuteKey, timeSlotStats] of propagationResultsWithBasicError.entries()) {
