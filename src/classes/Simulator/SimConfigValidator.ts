@@ -226,7 +226,7 @@ export default class SimConfigValidator {
 
     // Convert endpointDependencies into a graph structure
     endpointDependencies.forEach(dep => {
-      dependencyGraph.set(dep.endpointId, dep.dependOn.map(d => d.endpointId));
+      dependencyGraph.set(dep.endpointId, Array.from(new Set(dep.dependOn.map(d => d.endpointId))));
     });
 
     // Track already reported cycles to avoid duplicate error messages

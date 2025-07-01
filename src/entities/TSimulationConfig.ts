@@ -62,7 +62,7 @@ export const simulationServiceVersionSchema = z.object({
   version: versionSchema,
   replica: z.number()
     .int({ message: "replica must be an integer." })
-    .min(1, { message: "replica (the number of service instances) must be at least 1 to simulate injection." })
+    .min(0, { message: "replica (the number of service instances) must be at least 0 to simulate injection." })
     .optional(),
   endpoints: z.array(simulationEndpointSchema),
 }).strict();
@@ -175,6 +175,10 @@ export type TLoadSimulation = z.infer<typeof loadSimulationSchema>;
 
 
 export type TSimulationConfigYAML = z.infer<typeof simulationConfigYAMLSchema>;
+
+
+
+
 
 
 

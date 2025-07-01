@@ -93,15 +93,15 @@ export default class LoadSimulationPropagator {
     dependOnMap: Map<string, Set<string>>,
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
-    adjustedErrorRatePerMinute: Map<string, Map<string, number>>,
+    adjustedErrorRatePerTimeSlot: Map<string, Map<string, number>>,
     fallbackStrategyMap: Map<string, TFallbackStrategy>,
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
     return this.simulatePropagation(
       dependOnMap,
       entryEndpointRequestCountsMapByTimeSlot,
       latencyMap,
-      (dayHourMinuteKey) => {
-        return adjustedErrorRatePerMinute.get(dayHourMinuteKey) || new Map<string, number>();
+      (timeSlotKey) => {
+        return adjustedErrorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>();
       },
       this.preprocessFallbackStrategyMap(fallbackStrategyMap),
       true
@@ -112,16 +112,16 @@ export default class LoadSimulationPropagator {
     dependOnMap: Map<string, Set<string>>,
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
-    getErrorRateMap: (dayHourMinuteKey: string) => Map<string, number>, //  key = `${day}-${hour}-${minute}`
+    getErrorRateMap: (timeSlotKey: string) => Map<string, number>, //  key = `${day}-${hour}-${minute}`
     fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
     shouldComputeLatency: boolean
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
     /*
-     * Returns a Map representing aggregated traffic simulation results per minute.
+     * Returns a Map representing aggregated traffic simulation results.
      *
      * Top-level Map:
-     * Key:   string - A timestamp key in "day-hour-minute" format (e.g., "0-10-30").
-     * Value: Map<string, TEndpointPropagationStats> - Details for all endpoints active during this minute.
+     * Key:   string - A timeSlotKey in "day-hour-minute" format (e.g., "0-10-30").
+     * Value: Map<string, TEndpointPropagationStats> - Details for all endpoints active during a specific time slot.
      *
      * Inner Map (Value of Top-level Map):
      * Key:   string - The unique ID of a target endpoint (endpointId).
@@ -130,9 +130,9 @@ export default class LoadSimulationPropagator {
     const results: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> = new Map();
 
     // Iterate through each entry point (entryPointId) configured in the simulation configuration.
-    for (const [dayHourMinuteKey, entryPointReqestCountMap] of entryEndpointRequestCountsMapByTimeSlot.entries()) {
+    for (const [timeSlotKey, entryPointReqestCountMap] of entryEndpointRequestCountsMapByTimeSlot.entries()) {
       // Get the error rate map for all endpoints at this specific time slot.
-      const errorRateMap = getErrorRateMap(dayHourMinuteKey);
+      const errorRateMap = getErrorRateMap(timeSlotKey);
 
       const propagationResultAtThisTimeSlot = this.simulatePropagationInSingleTimeSlot(
         entryPointReqestCountMap,
@@ -143,7 +143,7 @@ export default class LoadSimulationPropagator {
         shouldComputeLatency
       )
 
-      results.set(dayHourMinuteKey, propagationResultAtThisTimeSlot);
+      results.set(timeSlotKey, propagationResultAtThisTimeSlot);
 
     }
 

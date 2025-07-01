@@ -83,11 +83,11 @@ export default class SimulationService extends IRequestHandler {
                 ServiceOperator.getInstance().updateStaticSimulateDataToCache({
                   dependencies: result.endpointDependencies,
                   dataTypes:result.dataType,
-                  replicaCounts: result.replicaCountList
+                  replicaCounts: result.basicReplicaCountList
                 });
 
                 await ServiceOperator.getInstance().updateDynamicSimulateData({
-                  realtimeDataMap:result.realtimeCombinedDataPerMinuteMap
+                  realtimeDataMap:result.realtimeCombinedDataPerTimeSlotMap
                 });
                 return res.status(200).json({ message: "ok" });
               } catch (err) {

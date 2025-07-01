@@ -128,7 +128,7 @@ export default class DependencyGraphSimulator {
 
   }
 
-  buildEndpointDependenciesAndDependOnMap(
+  buildEndpointDependencies(
     parsedConfig: TSimulationConfigYAML,
     simulateDate: number
   ): {

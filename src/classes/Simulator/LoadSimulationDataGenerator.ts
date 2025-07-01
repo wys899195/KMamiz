@@ -13,11 +13,11 @@ export default class LoadSimulationDataGenerator {
     propagationFinalResults: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>>,
     simulateDate: number
   ): Map<string, TCombinedRealtimeData[]> {
-    const realtimeDataPerMinute = new Map<string, TCombinedRealtimeData[]>(); // key: "day-hour-minute"
+    const realtimeDataPerTimeSlot = new Map<string, TCombinedRealtimeData[]>(); // key: timeSlotKey,format is"day-hour-minute"
 
-    for (const [dayHourMinuteKey, minuteStats] of propagationFinalResults.entries()) {
+    for (const [timeSlotKey, statsOnSpecificTimeSlot] of propagationFinalResults.entries()) {
       // timestamp
-      const [dayStr, hourStr, minuteStr] = dayHourMinuteKey.split('-');
+      const [dayStr, hourStr, minuteStr] = timeSlotKey.split('-');
       const day = parseInt(dayStr);
       const hour = parseInt(hourStr);
       const minute = parseInt(minuteStr);
@@ -27,7 +27,7 @@ export default class LoadSimulationDataGenerator {
 
 
       const combinedList: TCombinedRealtimeData[] = [];
-      for (const [endpointId, stats] of minuteStats.entries()) {
+      for (const [endpointId, stats] of statsOnSpecificTimeSlot.entries()) {
         const baseDataWithResp = baseDataMap.get(endpointId);
         if (!baseDataWithResp) continue;
 
@@ -66,9 +66,9 @@ export default class LoadSimulationDataGenerator {
           });
         }
       }
-      realtimeDataPerMinute.set(dayHourMinuteKey, combinedList);
+      realtimeDataPerTimeSlot.set(timeSlotKey, combinedList);
     }
-    return realtimeDataPerMinute;
+    return realtimeDataPerTimeSlot;
   }
 
 }

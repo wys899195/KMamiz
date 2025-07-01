@@ -40,8 +40,8 @@ export default class Simulator {
     convertingErrorMessage: string; // error message when converting to realtime data
     endpointDependencies: TEndpointDependency[];
     dataType: EndpointDataType[];
-    replicaCountList: TReplicaCount[];
-    realtimeCombinedDataPerMinuteMap: Map<string, TCombinedRealtimeData[]>
+    basicReplicaCountList: TReplicaCount[];
+    realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]>
   } {
     const { errorMessage, parsedConfig } =
       SimulationConfigManager.getInstance().validateAndPrerocessSimConfig(configYamlString);
@@ -52,8 +52,8 @@ export default class Simulator {
         convertingErrorMessage: "",
         endpointDependencies: [],
         dataType: [],
-        replicaCountList: [],
-        realtimeCombinedDataPerMinuteMap: new Map(),
+        basicReplicaCountList: [],
+        realtimeCombinedDataPerTimeSlotMap: new Map(),
       };
     }
 
@@ -62,7 +62,7 @@ export default class Simulator {
 
     const {
       sampleRealTimeDataList,// to extract simulation data types even without traffic
-      replicaCountList,
+      basicReplicaCountList,
       baseDataMap: EndpointRealTimeBaseDatas
     } = this.collectSampleRealtimeDataAndReplicaCounts(
       parsedConfig.servicesInfo,
@@ -70,19 +70,19 @@ export default class Simulator {
     );
 
     const { dependOnMap, endpointDependencies } =
-      DependencyGraphSimulator.getInstance().buildEndpointDependenciesAndDependOnMap(
+      DependencyGraphSimulator.getInstance().buildEndpointDependencies(
         parsedConfig,
         simulateDate
       )
 
-    let realtimeCombinedDataPerMinuteMap: Map<string, TCombinedRealtimeData[]> = new Map();
+    let realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]> = new Map();
 
     if (parsedConfig.loadSimulation && parsedConfig.loadSimulation.endpointMetrics.length > 0) {
-      realtimeCombinedDataPerMinuteMap =
-        LoadSimulationHandler.getInstance().generateMinuteCombinedRealtimeDataMap(
+      realtimeCombinedDataPerTimeSlotMap =
+        LoadSimulationHandler.getInstance().generateCombinedRealtimeDataMap(
           parsedConfig.loadSimulation,
           dependOnMap,
-          replicaCountList,
+          basicReplicaCountList,
           EndpointRealTimeBaseDatas,
           simulateDate
         )
@@ -96,8 +96,8 @@ export default class Simulator {
           sampleRealTimeDataList,
           endpointDependencies
         ),
-        replicaCountList,
-        realtimeCombinedDataPerMinuteMap
+        basicReplicaCountList,
+        realtimeCombinedDataPerTimeSlotMap
       };
     } catch (err) {
       const errMsg = `${err instanceof Error ? err.message : err}`;
@@ -109,8 +109,8 @@ export default class Simulator {
           `Failed to convert simulationRawData to simulation data:\n ${errMsg}`,
         endpointDependencies: [],
         dataType: [],
-        replicaCountList: [],
-        realtimeCombinedDataPerMinuteMap: new Map(),
+        basicReplicaCountList: [],
+        realtimeCombinedDataPerTimeSlotMap: new Map(),
       };
     }
   }
@@ -140,7 +140,7 @@ export default class Simulator {
     simulateDate: number,
   ): {
     sampleRealTimeDataList: TRealtimeData[];
-    replicaCountList: TReplicaCount[];
+    basicReplicaCountList: TReplicaCount[];
     baseDataMap: Map<string, TBaseDataWithResponses>;
   } {
     const sampleRealTimeDataList: TRealtimeData[] = [];
@@ -180,7 +180,6 @@ export default class Simulator {
               version: ver.version,
               requestBody: ep.datatype?.requestBody,
               requestContentType: ep.datatype?.requestContentType,
-              replica: ver.replica ?? 1,
             };
 
             baseDataMap.set(ep.endpointId, { baseData, responses: ep.datatype?.responses });
@@ -197,7 +196,7 @@ export default class Simulator {
       }
     }
 
-    return { sampleRealTimeDataList, replicaCountList, baseDataMap };
+    return { sampleRealTimeDataList, basicReplicaCountList: replicaCountList, baseDataMap };
   }
 
   private generateSampleRealtimeDataForEndpoint(
@@ -226,4 +225,7 @@ export default class Simulator {
 
     return endpointSampleData;
   }
+
+
+
 }

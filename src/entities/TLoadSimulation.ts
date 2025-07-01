@@ -6,7 +6,7 @@ import {
 /* TBaseDataWithResponses */
 type TBaseRealtimeData = Omit<
   TRealtimeData,
-  'latency' | 'status' | 'responseBody' | 'responseContentType' | 'timestamp'
+  'latency' | 'status' | 'responseBody' | 'responseContentType' | 'timestamp' | 'replica'
 >;
 
 export type TBaseDataWithResponses = {
@@ -22,3 +22,8 @@ export type TEndpointPropagationStatsForOneTimeSlot = {
   latencyStatsByStatus: Map<string, { mean: number; cv: number }>; //Key: status code, Value: latency statistics (mean and coefficient of variation) for all requests with this status code
 
 };
+
+
+export type TDataPerTimeSlot = {
+  
+}
