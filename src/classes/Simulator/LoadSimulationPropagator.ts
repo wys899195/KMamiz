@@ -66,6 +66,7 @@ export default class LoadSimulationPropagator {
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>,
+    replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
     fallbackStrategyMap: Map<string, TFallbackStrategy>,
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
     // console.log("dependOnMap", dependOnMap);
@@ -84,6 +85,7 @@ export default class LoadSimulationPropagator {
       entryEndpointRequestCountsMapByTimeSlot,
       latencyMap,
       () => errorRateMap,
+      replicaCountPerTimeSlot,
       this.preprocessFallbackStrategyMap(fallbackStrategyMap),
       false,
     );
@@ -94,15 +96,15 @@ export default class LoadSimulationPropagator {
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
     adjustedErrorRatePerTimeSlot: Map<string, Map<string, number>>,
+    replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
     fallbackStrategyMap: Map<string, TFallbackStrategy>,
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
     return this.simulatePropagation(
       dependOnMap,
       entryEndpointRequestCountsMapByTimeSlot,
       latencyMap,
-      (timeSlotKey) => {
-        return adjustedErrorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>();
-      },
+      (timeSlotKey) => { return adjustedErrorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>(); },
+      replicaCountPerTimeSlot,
       this.preprocessFallbackStrategyMap(fallbackStrategyMap),
       true
     );
@@ -113,6 +115,7 @@ export default class LoadSimulationPropagator {
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
     latencyMap: Map<string, number>,
     getErrorRateMap: (timeSlotKey: string) => Map<string, number>, //  key = `${day}-${hour}-${minute}`
+    replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
     fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
     shouldComputeLatency: boolean
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
@@ -134,17 +137,31 @@ export default class LoadSimulationPropagator {
       // Get the error rate map for all endpoints at this specific time slot.
       const errorRateMap = getErrorRateMap(timeSlotKey);
 
+      // const replicaCountMap = new Map<string, number>([
+      //   ['productpage\tbook\tv1', 2],
+      //   ['details\tbook\tv1', 1],
+      //   ['reviews\tbook\tv1', 0],
+      //   ['reviews\tbook\tv2', 0],
+      //   ['reviews\tbook\tv3', 1],
+      //   ['book-recommendation\tbook\tv1', 1],
+      //   ['ratings\tbook\tv1', 1],
+      //   ['reviews-recommendation\tbook\tv1', 1],
+      // ]);
+      const replicaCountMap = replicaCountPerTimeSlot.get(timeSlotKey) || new Map<string, number>();
+
       const propagationResultAtThisTimeSlot = this.simulatePropagationInSingleTimeSlot(
         entryPointReqestCountMap,
         dependOnMap,
         latencyMap,
         errorRateMap,
+        replicaCountMap,
         fallbackStrategyMap,
         shouldComputeLatency
       )
 
-      results.set(timeSlotKey, propagationResultAtThisTimeSlot);
+      console.log("propagationResultAtThisTimeSlot", propagationResultAtThisTimeSlot)
 
+      results.set(timeSlotKey, propagationResultAtThisTimeSlot);
     }
 
     return results;
@@ -155,10 +172,13 @@ export default class LoadSimulationPropagator {
     dependOnMap: Map<string, Set<string>>,
     latencyMap: Map<string, number>,
     errorRateMap: Map<string, number>,
+    replicaCountMap: Map<string, number>,
     fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
     shouldComputeLatency: boolean
   ): Map<string, TEndpointPropagationStatsForOneTimeSlot> {
     const stats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>(); // key: endpointID value: TEndpointPropagationStats for this endpoint
+
+    // console.log("dependOnMap=", dependOnMap)
 
     // Store actual latencies of all requests for each endpointNode and status code, for later average calculation
     // key: endpointId, value: Map<statusCode, number[]>
@@ -181,6 +201,22 @@ export default class LoadSimulationPropagator {
 
       const currentStatus = new Map<string, boolean>();
       const realLatencyMap = new Map<string, number>();
+
+      const serviceId = endpointId.split('\t').slice(0, 3).join('\t');
+      const replica = replicaCountMap.get(serviceId) ?? 1;
+
+      // 針對 replica = 0 的端點做特殊處理
+      if (replica === 0) {
+        for (const reqId of requestIds) {
+          // endpoint 自己永遠成功（不算 ownError），
+          // 但回傳給上游狀態為失敗 (false)，
+          // latency = 0
+          currentStatus.set(reqId, false);
+          realLatencyMap.set(reqId, 0);
+        }
+        // 不往下傳播
+        return { statusMap: currentStatus, latencyMap: realLatencyMap };
+      }
 
       const errorRate = errorRateMap.get(endpointId) ?? 0;
       const baseLatency = latencyMap.get(endpointId) ?? 0;

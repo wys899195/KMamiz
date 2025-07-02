@@ -120,6 +120,11 @@ export const simulationServiceMetricSchema = z.object({
   versions: z.array(simulationServiceVersionMetricSchema),
 }).strict();
 
+export const simulationNamespaceServiceMetricsSchema = z.object({
+  namespace: z.string(),
+  services: z.array(simulationServiceMetricSchema),
+}).strict();
+
 export const simulationEndpointMetricSchema = z.object({
   endpointId: endpointIdSchema,
   latencyMs: z
@@ -142,7 +147,7 @@ export const simulationEndpointMetricSchema = z.object({
 
 export const loadSimulationSchema = z.object({
   config: loadSimulationConfigSchema.optional(),
-  serviceMetrics: z.array(simulationServiceMetricSchema),
+  serviceMetrics: z.array(simulationNamespaceServiceMetricsSchema),
   endpointMetrics: z.array(simulationEndpointMetricSchema),
 }).strict();
 
@@ -170,15 +175,12 @@ export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDep
 export type TLoadSimulationConfig = z.infer<typeof loadSimulationConfigSchema>;
 export type TSimulationServiceVersionMetric = z.infer<typeof simulationServiceVersionMetricSchema>;
 export type TSimulationServiceMetric = z.infer<typeof simulationServiceMetricSchema>;
+export type TSimulationNamespaceServiceMetrics = z.infer<typeof simulationNamespaceServiceMetricsSchema>;
 export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
 export type TLoadSimulation = z.infer<typeof loadSimulationSchema>;
 
 
 export type TSimulationConfigYAML = z.infer<typeof simulationConfigYAMLSchema>;
-
-
-
-
 
 
 

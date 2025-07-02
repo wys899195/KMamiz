@@ -1,5 +1,5 @@
 import {
-  TSimulationServiceMetric,
+  TSimulationNamespaceServiceMetrics,
   TSimulationEndpointMetric,
   TLoadSimulation,
   TLoadSimulationConfig,
@@ -37,7 +37,7 @@ export default class LoadSimulationHandler {
     EndpointRealTimeBaseDatas: Map<string, TBaseDataWithResponses>,
     simulateDate: number
   ): Map<string, TCombinedRealtimeData[]> {
-    const serviceMetrics: TSimulationServiceMetric[] = loadSimulationSettings.serviceMetrics;
+    const serviceMetrics: TSimulationNamespaceServiceMetrics[] = loadSimulationSettings.serviceMetrics;
     const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
     const {
       entryEndpointRequestCountsMapByTimeSlot,  // Key: day-hour-minute, Value: Map where Key is endpointId and Value is request count
@@ -55,6 +55,7 @@ export default class LoadSimulationHandler {
       entryEndpointRequestCountsMapByTimeSlot,
       latencyMap,
       basicErrorRateMap,
+      replicaCountPerTimeSlot,
       fallbackStrategyMap,
     );
 
@@ -78,6 +79,7 @@ export default class LoadSimulationHandler {
       entryEndpointRequestCountsMapByTimeSlot,
       latencyMap,
       adjustedErrorRateResult,
+      replicaCountPerTimeSlot, 
       fallbackStrategyMap,
     );
 
@@ -110,8 +112,8 @@ export default class LoadSimulationHandler {
     endpointMetrics: TSimulationEndpointMetric[],
     loadSimulationConfig?: TLoadSimulationConfig
   ): {
-    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>; // Key: day-hour-minute, Value: Map where Key is endpointId and Value is request count
-    replicaCountPerTimeSlot: Map<string, TReplicaCount[]> // key: day-hour-minute, value: replica counts for each service in the specific time slot
+    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>; //key: day-hour-minute, value: Map where Key is endpointId and Value is request count
+    replicaCountPerTimeSlot: Map<string, Map<string, number>> // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
     latencyMap: Map<string, number>;          // Key: endpointId, Value: Latency in milliseconds (>= 0)
     errorRateMap: Map<string, number>;        // Key: endpointId, Value: Error rate (in [0,1], i.e., percentage / 100)
     fallbackStrategyMap: Map<string, TFallbackStrategy>; // Key: endpointId, Value: fallback strategy for the endpoint
@@ -119,7 +121,7 @@ export default class LoadSimulationHandler {
     const latencyMap = new Map<string, number>();
     const errorRateMap = new Map<string, number>();
     const fallbackStrategyMap = new Map<string, TFallbackStrategy>();
-    const replicaCountPerTimeSlot: Map<string, TReplicaCount[]> = new Map();
+    const replicaCountPerTimeSlot: Map<string, Map<string, number>> = new Map();
     const entryEndpointRequestCountsMapByTimeSlot = new Map<string, Map<string, number>>();
 
     if (!endpointMetrics) {
@@ -139,7 +141,10 @@ export default class LoadSimulationHandler {
     for (let day = 0; day < simulationDurationInDays; day++) {
       for (let hour = 0; hour < 24; hour++) {
         const timeSlotKey = `${day}-${hour}-0`;
-        replicaCountPerTimeSlot.set(timeSlotKey, basicReplicaCountList.map(item => ({ ...item })))
+        const replicaCountMapInThisTimeslot = new Map<string, number>(
+          basicReplicaCountList.map(item => [item.uniqueServiceName, item.replicas])
+        )
+        replicaCountPerTimeSlot.set(timeSlotKey, replicaCountMapInThisTimeslot)
       }
     }
 
@@ -314,8 +319,8 @@ export default class LoadSimulationHandler {
           -value:requestCount
     */
     basicErrorRateMap: Map<string, number>,
-    replicaCountPerTimeSlot: Map<string, TReplicaCount[]>,
-    serviceMetrics: TSimulationServiceMetric[],
+    replicaCountPerTimeSlot: Map<string, Map<string, number>>,
+    serviceMetrics: TSimulationNamespaceServiceMetrics[],
   ): Map<string, Map<string, number>> {
     /*
     return Map: 
@@ -335,10 +340,12 @@ export default class LoadSimulationHandler {
 
     // Map: serviceId => capacity per replica
     const serviceCapacityMap = new Map<string, number>();
-    for (const metric of serviceMetrics) {
-      for (const version of metric.versions) {
-        if (version.serviceId) {
-          serviceCapacityMap.set(version.serviceId, version.capacityPerReplica);
+    for (const ns of serviceMetrics) {
+      for (const svc of ns.services) {
+        for (const ver of svc.versions) {
+          if (ver.serviceId) {
+            serviceCapacityMap.set(ver.serviceId, ver.capacityPerReplica);
+          }
         }
       }
     }
@@ -350,15 +357,14 @@ export default class LoadSimulationHandler {
       const adjustedMap = new Map<string, number>();
 
       // Map :serviceId => replica count
-      const replicaCountList = replicaCountPerTimeSlot.get(timeSlotKey) ?? [];
-      const replicaCountMap = new Map<string, number>();
-      for (const replicaInfo of replicaCountList) {
-        replicaCountMap.set(replicaInfo.uniqueServiceName, replicaInfo.replicas);
-      }
+      const replicaCountMap = replicaCountPerTimeSlot.get(timeSlotKey) ?? new Map<string, number>();
 
-
+      console.log("adjustedErrorRate!")
+      console.log("serviceCapacityMap=",serviceCapacityMap)
       for (const [endpointId, baseErrorRate] of basicErrorRateMap.entries()) {
         const serviceId = endpointToServiceMap.get(endpointId)!;
+
+        console.log("serviceId=",serviceId)
 
         // Get request count for the service in this hour
         const requestCountPerMinute = serviceCounts.get(serviceId) ?? 0;

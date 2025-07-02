@@ -57,7 +57,7 @@ export default class SimConfigGenerator {
 
   private buildServicesInfoYaml(
     dataType: TEndpointDataType[],
-    replicaCountList: TReplicaCount[],
+    basicReplicaCountList: TReplicaCount[],
   ): {
     servicesInfoYaml: TSimulationNamespace[],
     endpointIdMap: Map<string, string>,
@@ -162,7 +162,7 @@ export default class SimConfigGenerator {
     }
 
     // Update replica counts to servicesInfoYaml
-    for (const replica of replicaCountList) {
+    for (const replica of basicReplicaCountList) {
       const { uniqueServiceName, replicas, namespace, version } = replica;
       const [serviceName] = uniqueServiceName.split("\t");
 

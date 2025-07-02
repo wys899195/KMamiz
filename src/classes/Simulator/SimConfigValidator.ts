@@ -86,7 +86,8 @@ export default class SimConfigValidator {
     // Validate LoadSimulation settings
     // Includes checking service metrics to verify services exist and no duplicates,
     // and validating endpoint metrics for correct endpoint references and duplicates.
-    const serviceMetricErrors = this.validateServiceMetrics(parsedConfig);
+    // Assign serviceId to loadSimulation.serviceMetrics' versions based on servicesInfo
+    const serviceMetricErrors = this.validateAndAssignServiceIdForServiceMetrics(parsedConfig);
     const endpointMetricErrors = this.validateEndpointMetrics(parsedConfig, allDefinedEndpointIds);
 
     const loadSimulationErrors = [
@@ -95,10 +96,6 @@ export default class SimConfigValidator {
     ];
 
     if (loadSimulationErrors.length) return loadSimulationErrors;
-
-    // Assign serviceId to loadSimulation.serviceMetrics' versions based on servicesInfo
-    const serviceMetricIdsErrors = this.assignServiceIdsToMetrics(parsedConfig);
-    if (serviceMetricIdsErrors.length) return dependencyErrors;
 
     // Convert all user-defined endpoint IDs to unique endpoint names
     // This prevents conflicts in subsequent processing stages.
@@ -117,7 +114,7 @@ export default class SimConfigValidator {
       namespace.services.forEach(service =>
         service.versions.forEach(version => {
           // Generate serviceId
-          const serviceId = `${service.serviceName}\t${namespace.namespace}\t${version.version}`;
+          const serviceId = `${service.serviceName.trim()}\t${namespace.namespace.trim()}\t${version.version.trim()}`;
 
           // Check for duplicates
           if (existingServiceId.has(serviceId)) {
@@ -282,50 +279,56 @@ export default class SimConfigValidator {
     return errorMessages;
   }
 
-  private validateServiceMetrics(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private validateAndAssignServiceIdForServiceMetrics(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
 
     // service metric
-    const definedServiceVersions = new Set<string>();
+    const definedServiceId = new Set<string>();
     parsedConfig.servicesInfo.forEach(ns => {
       ns.services.forEach(svc => {
         svc.versions.forEach(ver => {
-          const key = `${svc.serviceName}\t${ver.version}`;
-          definedServiceVersions.add(key);
+          definedServiceId.add(ver.serviceId!);
         });
       });
     });
 
-    parsedConfig.loadSimulation?.serviceMetrics.forEach((metric, index) => {
-      const errorLocation = `loadSimulation.serviceMetrics[${index}]`;
-      metric.versions.forEach((ver, verIndex) => {
-        const versionLocation = `${errorLocation}.versions[${verIndex}]`;
-        const serviceVersionKey = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
+    parsedConfig.loadSimulation?.serviceMetrics.forEach((namespace, nsIndex) => {
+      namespace.services.forEach((service, svcIndex) => {
+        const serviceLocation = `loadSimulation.serviceMetrics[${nsIndex}].services[${svcIndex}]`;
+        service.versions.forEach((version, verIndex) => {
+          const versionLocation = `${serviceLocation}.versions[${verIndex}]`;
+          const serviceId = `${service.serviceName.trim()}\t${namespace.namespace.trim()}\t${version.version.trim()}`
 
-        if (!definedServiceVersions.has(serviceVersionKey)) {
-          errorMessages.push({
-            errorLocation: versionLocation,
-            message: `serviceName "${metric.serviceName}" with version "${ver.version}" is not defined in servicesInfo.`,
-          });
-        }
-      });
+          if (!definedServiceId.has(serviceId)) {
+            errorMessages.push({
+              errorLocation: versionLocation,
+              message: `service "${service.serviceName}" in namespace "${namespace}" with version "${version.version}" is not defined in servicesInfo.`,
+            });
+          } else {
+            //assign serviceId
+            version.serviceId = serviceId;
+          }
+        })
+      })
     });
 
     const seenServiceVersions = new Set<string>();
-    parsedConfig.loadSimulation?.serviceMetrics.forEach((metric, index) => {
-      const errorLocation = `loadSimulation.serviceMetrics[${index}]`;
-      metric.versions.forEach((ver, verIndex) => {
-        const versionLocation = `${errorLocation}.versions[${verIndex}]`;
-        const serviceVersionKey = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
+    parsedConfig.loadSimulation?.serviceMetrics.forEach((namespace, nsIndex) => {
+      namespace.services.forEach((service, svcIndex) => {
+        const serviceLocation = `loadSimulation.serviceMetrics[${nsIndex}].services[${svcIndex}]`;
 
-        if (seenServiceVersions.has(serviceVersionKey)) {
-          errorMessages.push({
-            errorLocation: versionLocation,
-            message: `Duplicate serviceName "${metric.serviceName}" with version "${ver.version}" found in serviceMetrics.`,
-          });
-        } else {
-          seenServiceVersions.add(serviceVersionKey);
-        }
+        service.versions.forEach((version, verIndex) => {
+          const versionLocation = `${serviceLocation}.versions[${verIndex}]`;
+          const serviceId = `${service.serviceName.trim()}\t${namespace.namespace.trim()}\t${version.version.trim()}`
+          if (seenServiceVersions.has(serviceId)) {
+            errorMessages.push({
+              errorLocation: versionLocation,
+              message: `Duplicate service "${service.serviceName}" in namespace "${namespace}" with version "${version.version}" found in serviceMetrics.`,
+            });
+          } else {
+            seenServiceVersions.add(serviceId);
+          }
+        });
       });
     });
 
@@ -357,39 +360,6 @@ export default class SimConfigValidator {
       } else {
         seenEndpointIds.add(m.endpointId);
       }
-    });
-
-    return errorMessages;
-  }
-
-  private assignServiceIdsToMetrics(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
-    const serviceVersionToIdMap = new Map<string, string>();
-
-    parsedConfig.servicesInfo.forEach(ns => {
-      ns.services.forEach(svc => {
-        svc.versions.forEach(ver => {
-          const key = `${svc.serviceName.trim()}\t${ver.version.trim()}`;
-          serviceVersionToIdMap.set(key, ver.serviceId!);
-        });
-      });
-    });
-
-    parsedConfig.loadSimulation?.serviceMetrics.forEach((metric, metricIndex) => {
-      metric.versions.forEach((ver, verIndex) => {
-        const key = `${metric.serviceName.trim()}\t${ver.version.trim()}`;
-        const matchedServiceId = serviceVersionToIdMap.get(key);
-        const errorLocation = `loadSimulation.serviceMetrics[${metricIndex}].versions[${verIndex}].serviceId`;
-
-        if (matchedServiceId) {
-          ver.serviceId = matchedServiceId;
-        } else {
-          errorMessages.push({
-            errorLocation: errorLocation,
-            message: `Cannot map serviceId for serviceName="${metric.serviceName}" and version="${ver.version}".`,
-          });
-        }
-      });
     });
 
     return errorMessages;

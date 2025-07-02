@@ -144,7 +144,7 @@ export default class Simulator {
     baseDataMap: Map<string, TBaseDataWithResponses>;
   } {
     const sampleRealTimeDataList: TRealtimeData[] = [];
-    const replicaCountList: TReplicaCount[] = [];
+    const basicReplicaCountList: TReplicaCount[] = [];
     const baseDataMap = new Map<string, TBaseDataWithResponses>();
     const processedUniqueServiceNameSet = new Set<string>();
 
@@ -159,7 +159,7 @@ export default class Simulator {
           processedUniqueServiceNameSet.add(uniqueServiceName);
 
           // create replicaCount
-          replicaCountList.push({
+          basicReplicaCountList.push({
             uniqueServiceName,
             service: svc.serviceName,
             namespace: ns.namespace,
@@ -196,7 +196,7 @@ export default class Simulator {
       }
     }
 
-    return { sampleRealTimeDataList, basicReplicaCountList: replicaCountList, baseDataMap };
+    return { sampleRealTimeDataList, basicReplicaCountList, baseDataMap };
   }
 
   private generateSampleRealtimeDataForEndpoint(
