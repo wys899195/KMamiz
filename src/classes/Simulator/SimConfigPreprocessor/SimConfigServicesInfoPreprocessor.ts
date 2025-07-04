@@ -1,91 +1,58 @@
 import {
-  TSimulationConfigYAML,
+
   TSimulationConfigErrors,
-  TSimulationEndpointMetric,
-  TSimulationConfigProcessResult,
+  TSimulationNamespace,
   BodyInputType,
-  TFallbackStrategy
-} from "../../entities/TSimulationConfig";
+} from "../../../entities/TSimulationConfig";
+import SimulatorUtils from "../SimulatorUtils";
 
-export default class SimConfigPreprocessor {
+export default class SimConfigServicesInfoPreprocessor {
 
-  preprocessEndpointDataTypeInYaml(parsedConfig: TSimulationConfigYAML): TSimulationConfigProcessResult {
-    let errorMessageDetails: TSimulationConfigErrors[] = [];
-    try {
-      errorMessageDetails = this.validateAndPreprocessEndpointBodies(parsedConfig);
-      if (errorMessageDetails.length) {
-        return {
-          errorMessage: [
-            "Failed to preprocess endpoint data types in YAML:",
-            ...errorMessageDetails.map(e => `At ${e.errorLocation}: ${e.message}`)
-          ].join("\n---\n"),
-          parsedConfig: null,
-        }
-      }
-      return {
-        errorMessage: "",
-        parsedConfig: parsedConfig,
-      }
-    } catch (e) {
-      return {
-        errorMessage: `Failed to preprocess endpoint data types in YAML:\n---\n${e instanceof Error ? e.message : e}`,
-        parsedConfig: null,
-      };
-    }
+  preprocess(servicesInfoConfig: TSimulationNamespace[]): TSimulationConfigErrors[] {
+    this.assignUniqueServiceNameAndEndpointName(servicesInfoConfig);
+
+    const preprocessEndpointBodiesErrors = this.preprocessEndpointBodies(servicesInfoConfig);
+    if (preprocessEndpointBodiesErrors.length) return preprocessEndpointBodiesErrors;
+
+    // If no errors found, return an empty array.
+    return [];
   }
 
-  // Avoid missing base error rates for endpoints when adjusting error rates during load simulation
-  addDefaultMetricsForMissingEndpointsInPlace(parsedConfig: TSimulationConfigYAML): TSimulationConfigProcessResult {
-    try {
-      const allEndpointIds = new Set<string>();
-      parsedConfig.servicesInfo.forEach(namespace => {
-        namespace.services.forEach(service => {
-          service.versions.forEach(version => {
-            version.endpoints.forEach(endpoint => {
-              allEndpointIds.add(endpoint.endpointId);
-            });
-          });
-        });
-      });
+  // Assign uniqueServiceName and uniqueEndpointName to each service and endpoint for later use
+  private assignUniqueServiceNameAndEndpointName(
+    servicesInfoConfig: TSimulationNamespace[]
+  ) {
+    servicesInfoConfig.forEach(ns =>
+      ns.services.forEach(svc =>
+        svc.versions.forEach(ver => {
+          // assign uniqueServiceName
+          ver.uniqueServiceName = SimulatorUtils.generateUniqueServiceName(
+            svc.serviceName,
+            ns.namespace,
+            ver.version
+          );
 
-      if (!parsedConfig.loadSimulation) {
-        parsedConfig.loadSimulation = {
-          serviceMetrics: [],
-          endpointMetrics: [],
-        };
-      }
-
-      const endpointMetrics: TSimulationEndpointMetric[] = parsedConfig.loadSimulation.endpointMetrics ?? [];
-      const existingMetricIds = new Set(endpointMetrics.map(m => m.endpointId));
-
-      const missingEndpointIds = Array.from(allEndpointIds).filter(id => !existingMetricIds.has(id));
-
-      const defaultMetrics = missingEndpointIds.map(id => ({
-        endpointId: id,
-        latencyMs: 0,
-        expectedExternalDailyRequestCount: 0,
-        errorRatePercentage: 0,
-        fallbackStrategy:  "failIfAnyDependentFail" as TFallbackStrategy
-      }));
-
-      parsedConfig.loadSimulation.endpointMetrics = [...endpointMetrics, ...defaultMetrics];
-
-      return {
-        errorMessage: "",
-        parsedConfig: parsedConfig,
-      }
-    } catch (e) {
-      return {
-        errorMessage: `Failed to add default metrics for missing endpoints:\n---\n${e instanceof Error ? e.message : e}`,
-        parsedConfig: null,
-      };
-    }
-
+          // assign uniqueEndpointName
+          ver.endpoints.forEach((ep) => {
+            ep.uniqueEndpointName = SimulatorUtils.generateUniqueEndpointName(
+              svc.serviceName,
+              ns.namespace,
+              ver.version,
+              ep.endpointInfo.method.toUpperCase(),
+              ep.endpointInfo.path
+            );
+          })
+        })
+      )
+    );
   }
 
-  private validateAndPreprocessEndpointBodies(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  // Preprocess the requestBody and responseBody of each endpoint
+  private preprocessEndpointBodies(
+    servicesInfoConfig: TSimulationNamespace[]
+  ): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
-    parsedConfig.servicesInfo.forEach((namespace, nsIndex) => {
+    servicesInfoConfig.forEach((namespace, nsIndex) => {
       namespace.services.forEach((service, svcIndex) => {
         service.versions.forEach((version, verIndex) => {
           version.endpoints.forEach((endpoint, epIndex) => {
@@ -122,7 +89,6 @@ export default class SimConfigPreprocessor {
     });
     return errorMessages;
   }
-
   private preprocessJsonBody(bodyString: string): {
     isSuccess: boolean,
     processedBodyString: string,
@@ -166,14 +132,12 @@ export default class SimConfigPreprocessor {
       };
     }
   }
-
   private classifyBodyInputType(input: string): BodyInputType {
     if (this.isJsonSample(input)) return "sample";
     if (this.isTypeDefinition(input)) return "typeDefinition";
     if (input.trim() === '') return "empty";
     return "unknown";
   }
-
   private isJsonSample(input: string): boolean {
     try {
       const parsed = JSON.parse(input);
@@ -182,12 +146,10 @@ export default class SimConfigPreprocessor {
       return false;
     }
   }
-
   private isTypeDefinition(input: string): boolean {
     const trimmed = input.trim();
     return !this.isJsonSample(input) && /:\s*(string|number|boolean|null|any|\{|\[)/i.test(trimmed);
   }
-
   //Convert TypeScript-like type definitions (interface-style structures) into JSON format string.
   private convertUserDefinedTypeToJson(input: string): string {
     // Remove extra whitespace for easier processing
@@ -205,7 +167,6 @@ export default class SimConfigPreprocessor {
 
     return input;
   }
-
   //(for convert User Defined Type To Json)Parse object properties
   private parseProperties(input: string): string {
     const properties: string[] = [];
@@ -237,7 +198,6 @@ export default class SimConfigPreprocessor {
 
     return properties.join(', ');
   }
-
   //(for convert User Defined Type To Json)Parse a single property
   private parseProperty(input: string): string {
     // Split property name and type
@@ -249,7 +209,6 @@ export default class SimConfigPreprocessor {
 
     return `"${propertyName}": ${this.parseType(propertyType)}`;
   }
-
   //(for convert User Defined Type To Json)Parse type definition
   private parseType(type: string): string {
     // Extract array notations and base type
@@ -292,7 +251,6 @@ export default class SimConfigPreprocessor {
     // Default primitive
     return `"${type}"`;
   }
-
   private deIdentify(
     input: any,
     isTypeDefinition: boolean
@@ -319,12 +277,12 @@ export default class SimConfigPreprocessor {
       }
     }
   }
-
   private deIdentifyJsonTypeDefinition(obj: any): any {
     return this.deIdentify(obj, true);
   }
-
   private deIdentifyJsonSample(input: any): any {
     return this.deIdentify(input, false);
   }
+
+
 }

@@ -61,62 +61,13 @@ export default class LoadSimulationPropagator {
     };
   }
 
-  simulatePropagationToEstimateLoad(
+  simulatePropagation(
     dependOnMap: Map<string, Set<string>>,
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
-    latencyMap: Map<string, number>,
-    errorRateMap: Map<string, number>,
+    latencyMapPerTimeSlot: Map<string, Map<string, number>>,
+    errorRatePerTimeSlot: Map<string, Map<string, number>>,
     replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
     fallbackStrategyMap: Map<string, TFallbackStrategy>,
-  ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
-    // console.log("dependOnMap", dependOnMap);
-    // console.log("entryEndpointRequestCountsMapByTimeSlot",entryEndpointRequestCountsMapByTimeSlot);
-    // console.log("latencyMap", latencyMap);
-    // console.log("errorRateMap", errorRateMap);
-    // console.log("resuit", this.simulatePropagation(
-    //   dependOnMap,
-    //   entryEndpointRequestCountsMapByTimeSlot,
-    //   latencyMap,
-    //   () => errorRateMap
-    // ))
-
-    return this.simulatePropagation(
-      dependOnMap,
-      entryEndpointRequestCountsMapByTimeSlot,
-      latencyMap,
-      () => errorRateMap,
-      replicaCountPerTimeSlot,
-      this.preprocessFallbackStrategyMap(fallbackStrategyMap),
-      false,
-    );
-  }
-
-  simulatePropagationWithAdjustedErrorRates(
-    dependOnMap: Map<string, Set<string>>,
-    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
-    latencyMap: Map<string, number>,
-    adjustedErrorRatePerTimeSlot: Map<string, Map<string, number>>,
-    replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
-    fallbackStrategyMap: Map<string, TFallbackStrategy>,
-  ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
-    return this.simulatePropagation(
-      dependOnMap,
-      entryEndpointRequestCountsMapByTimeSlot,
-      latencyMap,
-      (timeSlotKey) => { return adjustedErrorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>(); },
-      replicaCountPerTimeSlot,
-      this.preprocessFallbackStrategyMap(fallbackStrategyMap),
-      true
-    );
-  }
-
-  private simulatePropagation(
-    dependOnMap: Map<string, Set<string>>,
-    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
-    latencyMap: Map<string, number>,
-    getErrorRateMap: (timeSlotKey: string) => Map<string, number>, //  key = `${day}-${hour}-${minute}`
-    replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
-    fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
     shouldComputeLatency: boolean
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
     /*
@@ -130,13 +81,23 @@ export default class LoadSimulationPropagator {
      * Key:   string - The unique ID of a target endpoint (endpointId).
      * Value: TEndpointPropagationStats
      */
+
+    // console.log("dependOnMap", dependOnMap);
+    // console.log("entryEndpointRequestCountsMapByTimeSlot",entryEndpointRequestCountsMapByTimeSlot);
+    // console.log("latencyMap", latencyMap);
+    // console.log("errorRateMap", errorRateMap);
+    // console.log("resuit", this.simulatePropagation(
+    //   dependOnMap,
+    //   entryEndpointRequestCountsMapByTimeSlot,
+    //   latencyMap,
+    //   () => errorRateMap
+    // ))
     const results: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> = new Map();
+
+    const preprocessedFallbackStrategyMap = this.preprocessFallbackStrategyMap(fallbackStrategyMap);
 
     // Iterate through each entry point (entryPointId) configured in the simulation configuration.
     for (const [timeSlotKey, entryPointReqestCountMap] of entryEndpointRequestCountsMapByTimeSlot.entries()) {
-      // Get the error rate map for all endpoints at this specific time slot.
-      const errorRateMap = getErrorRateMap(timeSlotKey);
-
       // const replicaCountMap = new Map<string, number>([
       //   ['productpage\tbook\tv1', 2],
       //   ['details\tbook\tv1', 1],
@@ -152,14 +113,14 @@ export default class LoadSimulationPropagator {
       const propagationResultAtThisTimeSlot = this.simulatePropagationInSingleTimeSlot(
         entryPointReqestCountMap,
         dependOnMap,
-        latencyMap,
-        errorRateMap,
+        latencyMapPerTimeSlot.get(timeSlotKey) || new Map<string, number>(),
+        errorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>(),
         replicaCountMap,
-        fallbackStrategyMap,
+        preprocessedFallbackStrategyMap,
         shouldComputeLatency
       )
 
-      console.log("propagationResultAtThisTimeSlot", propagationResultAtThisTimeSlot)
+      //console.log("propagationResultAtThisTimeSlot", propagationResultAtThisTimeSlot)
 
       results.set(timeSlotKey, propagationResultAtThisTimeSlot);
     }
@@ -200,10 +161,10 @@ export default class LoadSimulationPropagator {
     ): { statusMap: Map<string, boolean>; latencyMap: Map<string, number> } {
 
       const currentStatus = new Map<string, boolean>();
-      const realLatencyMap = new Map<string, number>();
+      const totalLatencyMap = new Map<string, number>();
 
-      const serviceId = endpointId.split('\t').slice(0, 3).join('\t');
-      const replica = replicaCountMap.get(serviceId) ?? 1;
+      const uniqueServiceName = endpointId.split('\t').slice(0, 3).join('\t');
+      const replica = replicaCountMap.get(uniqueServiceName) ?? 1;
 
       // 針對 replica = 0 的端點做特殊處理
       if (replica === 0) {
@@ -212,10 +173,10 @@ export default class LoadSimulationPropagator {
           // 但回傳給上游狀態為失敗 (false)，
           // latency = 0
           currentStatus.set(reqId, false);
-          realLatencyMap.set(reqId, 0);
+          totalLatencyMap.set(reqId, 0);
         }
         // 不往下傳播
-        return { statusMap: currentStatus, latencyMap: realLatencyMap };
+        return { statusMap: currentStatus, latencyMap: totalLatencyMap };
       }
 
       const errorRate = errorRateMap.get(endpointId) ?? 0;
@@ -228,9 +189,7 @@ export default class LoadSimulationPropagator {
         ownSuccessMap.set(reqId, !isError);
         currentStatus.set(reqId, !isError);
 
-        const jitterFactor = 0.9 + Math.random() * 0.2 // Latency fluctuates randomly within +-10%
-        const latency = baseLatency * jitterFactor;
-        realLatencyMap.set(reqId, latency);// Default latency starts as own latency
+        totalLatencyMap.set(reqId, baseLatency); // Default latency starts as own latency
       }
 
       // Get dependent endpoints
@@ -285,8 +244,8 @@ export default class LoadSimulationPropagator {
           if (currentStatus.get(reqId)) {
             const dependentLats = dependentLatenciesPerRequest.get(reqId) ?? [];
             const maxDependentLat = dependentLats.length > 0 ? Math.max(...dependentLats) : 0;
-            const ownLat = realLatencyMap.get(reqId) ?? 0;
-            realLatencyMap.set(reqId, ownLat + maxDependentLat);
+            const ownLat = totalLatencyMap.get(reqId) ?? 0;
+            totalLatencyMap.set(reqId, ownLat + maxDependentLat);
           }
         }
       }
@@ -301,7 +260,7 @@ export default class LoadSimulationPropagator {
         if (!latMap.has(statusCode)) {
           latMap.set(statusCode, []);
         }
-        latMap.get(statusCode)!.push(realLatencyMap.get(reqId)!);
+        latMap.get(statusCode)!.push(totalLatencyMap.get(reqId)!);
       }
 
 
@@ -330,7 +289,7 @@ export default class LoadSimulationPropagator {
         latencyStatsByStatus: prevStats.latencyStatsByStatus,
       });
 
-      return { statusMap: currentStatus, latencyMap: realLatencyMap };
+      return { statusMap: currentStatus, latencyMap: totalLatencyMap };
     }
 
     // Execute simulation

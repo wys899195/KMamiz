@@ -94,7 +94,7 @@ export default class SimEndpointDependencyBuilder {
     for (const ns of servicesInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
-          const uniqueServiceName = ver.serviceId!;
+          const uniqueServiceName = ver.uniqueServiceName!;
 
           // to avoid duplicate processing of the same service
           if (processedUniqueServiceNameSet.has(uniqueServiceName)) continue;

@@ -1,12 +1,14 @@
 
 import SimulationConfigManager from './SimulationConfigManager';
-import DependencyGraphSimulator from './DependencyGraphSimulator';
+import SimEndpointDependencyBuilder from './SimEndpointDependencyBuilder';
 import LoadSimulationHandler from './LoadSimulationHandler';
 import {
   TSimulationEndpointDatatype,
   TSimulationNamespace,
   TSimulationResponseBody,
+  TLoadSimulationSettings,
 } from "../../entities/TSimulationConfig";
+import { Fault } from '../../entities/TLoadSimulation';
 import DataCache from "../../services/DataCache";
 import { TRealtimeData } from "../../entities/TRealtimeData";
 import { TReplicaCount } from "../../entities/TReplicaCount";
@@ -44,7 +46,7 @@ export default class Simulator {
     realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]>
   } {
     const { errorMessage, parsedConfig } =
-      SimulationConfigManager.getInstance().validateAndPrerocessSimConfig(configYamlString);
+      SimulationConfigManager.getInstance().handleSimConfig(configYamlString);
 
     if (!parsedConfig) {
       return {
@@ -70,20 +72,27 @@ export default class Simulator {
     );
 
     const { dependOnMap, endpointDependencies } =
-      DependencyGraphSimulator.getInstance().buildEndpointDependencies(
+      SimEndpointDependencyBuilder.getInstance().buildEndpointDependenciesBySimConfig(
         parsedConfig,
         simulateDate
       )
 
     let realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]> = new Map();
 
-    if (parsedConfig.loadSimulation && parsedConfig.loadSimulation.endpointMetrics.length > 0) {
+    const loadSimulationSettings = parsedConfig.loadSimulation;
+
+    if (loadSimulationSettings && loadSimulationSettings.endpointMetrics.length > 0) { //loadSimulationSettings.endpointMetrics.length > 0 means there is traffic.
+
+      const allFaultRecords = this.generateAllFaultRecords(parsedConfig.servicesInfo, loadSimulationSettings, basicReplicaCountList);
+
+
       realtimeCombinedDataPerTimeSlotMap =
         LoadSimulationHandler.getInstance().generateCombinedRealtimeDataMap(
-          parsedConfig.loadSimulation,
+          loadSimulationSettings,
           dependOnMap,
           basicReplicaCountList,
           EndpointRealTimeBaseDatas,
+          allFaultRecords,
           simulateDate
         )
     }
@@ -152,7 +161,7 @@ export default class Simulator {
     for (const ns of servicesInfo) {
       for (const svc of ns.services) {
         for (const ver of svc.versions) {
-          const uniqueServiceName = ver.serviceId!;
+          const uniqueServiceName = ver.uniqueServiceName!;
 
           // to avoid duplicate processing of the same service
           if (processedUniqueServiceNameSet.has(uniqueServiceName)) continue;
@@ -227,5 +236,213 @@ export default class Simulator {
   }
 
 
+  private generateAllFaultRecords(servicesInfo: TSimulationNamespace[], loadSimulationSettings: TLoadSimulationSettings, basicReplicaCountList: TReplicaCount[]) {
+    /*
+      allFaultRecords:
+        -key:"day-hour-minute" 
+        -value:
+          -key:endpointID
+          -value:Fault object
+    */
+    const allFaultRecords = new Map<string, Map<string, Fault>>();
+
+    const simulationDurationInDays = loadSimulationSettings.config?.simulationDurationInDays ?? 1;
+
+    for (let day = 0; day < simulationDurationInDays; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const timeSlotKey = `${day}-${hour}-0`;
+        const faultRecordsInThisTimeslot = new Map<string, Fault>();
+        allFaultRecords.set(timeSlotKey, faultRecordsInThisTimeslot)
+      }
+    }
+
+    const replicaCountPerTimeSlot = new Map<string, Map<string, number>>();
+    for (let day = 0; day < simulationDurationInDays; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const timeSlotKey = `${day}-${hour}-0`;
+        const replicaCountMapInThisTimeslot = new Map<string, number>(
+          basicReplicaCountList.map(item => [item.uniqueServiceName, item.replicas])
+        )
+        replicaCountPerTimeSlot.set(timeSlotKey, replicaCountMapInThisTimeslot)
+      }
+    }
+
+    //TODO:歷每個fault 將對應時段的故障注入到allFaultRecords
+    const allEndpointsByService = new Map<string, string[]>(); // key: `${namespace}:${serviceName}:${version}` → endpointId[]
+
+    // 建立 service → endpoints 快取
+    servicesInfo.forEach(ns => {
+      ns.services.forEach(svc => {
+        svc.versions.forEach(ver => {
+          const key = `${ns.namespace}:${svc.serviceName}:${ver.version}`;
+          allEndpointsByService.set(key, ver.endpoints.map(e => e.endpointId));
+        });
+      });
+    });
+
+    loadSimulationSettings.faults?.forEach(fault => {
+      const isLatency = fault.type === 'increase-latency';
+      const isErrorRate = fault.type === 'increase-error-rate';
+      const isReduceInstance = fault.type === 'reduce-instance'
+      if (isLatency || isErrorRate) {
+        const { day, startHour, durationHours } = fault.time;
+        const latency = isLatency ? fault.increaseLatencyMs ?? 0 : 0;
+        const errorRate = isErrorRate ? fault.increaseErrorRatePercent ?? 0 : 0;
+
+        const affectedEndpointIds = new Set<string>();
+
+        // 處理 targets.services
+        fault.targets?.services?.forEach(service => {
+          const ns = service.namespace;
+          const svc = service.serviceName;
+          const ver = service.version;
+
+          // version 有指定：精準找出
+          if (ver) {
+            const key = `${ns}:${svc}:${ver}`;
+            const endpointList = allEndpointsByService.get(key);
+            if (endpointList) {
+              endpointList.forEach(eid => affectedEndpointIds.add(eid));
+            }
+          } else {
+            // version 沒指定：抓所有版本
+            for (const [key, eids] of allEndpointsByService.entries()) {
+              const [kNs, kSvc, _] = key.split(':');
+              if (kNs === ns && kSvc === svc) {
+                eids.forEach(eid => affectedEndpointIds.add(eid));
+              }
+            }
+          }
+        });
+
+        // 處理 targets.endpoints
+        fault.targets?.endpoints?.forEach(ep => {
+          affectedEndpointIds.add(ep.endpointId);
+        });
+
+        // 注入到每個時段
+        for (let h = 0; h < durationHours; h++) {
+          const currentHour = startHour + h;
+          const actualDay = day + Math.floor(currentHour / 24) - 1;
+          const actualHour = currentHour % 24;
+          const timeSlotKey = `${actualDay}-${actualHour}-0`;
+          const timeSlotMap = allFaultRecords.get(timeSlotKey);
+          if (!timeSlotMap) continue;
+
+          affectedEndpointIds.forEach(endpointId => {
+            let faultObj = timeSlotMap.get(endpointId);
+            if (!faultObj) {
+              faultObj = new Fault();
+              timeSlotMap.set(endpointId, faultObj);
+            }
+            if (isLatency) {
+              faultObj.setIncreaseLatency(latency);
+            }
+            if (isErrorRate) {
+              faultObj.setIncreaseErrorRatePercent(errorRate);
+            }
+          });
+        }
+      }
+      else if (isReduceInstance) {
+        const reduceCount = fault.reduceCount ?? 0;
+
+        const day = fault.time.day;
+        const startHour = fault.time.startHour;
+        const durationHours = fault.time.durationHours;
+        const timeSlotKeys: string[] = [];
+        for (let h = 0; h < durationHours; h++) {
+          const totalHour = startHour + h;
+          const actualDay = day + Math.floor(totalHour / 24) - 1;
+          const actualHour = totalHour % 24;
+
+          const timeSlotKey = `${actualDay}-${actualHour}-0`;
+          timeSlotKeys.push(timeSlotKey);
+        }
+
+        //TODO
+
+
+        fault.targets?.services?.forEach(service => {
+          const ns = service.namespace ?? '';
+          const svc = service.serviceName;
+          const ver = service.version;
+
+          const day = fault.time.day;
+          const startHour = fault.time.startHour;
+          const durationHours = fault.time.durationHours;
+
+          const timeSlotKeys: string[] = [];
+          for (let h = 0; h < durationHours; h++) {
+            const totalHour = startHour + h;
+            const actualDay = day + Math.floor(totalHour / 24) - 1;
+            const actualHour = totalHour % 24;
+
+            const timeSlotKey = `${actualDay}-${actualHour}-0`;
+            timeSlotKeys.push(timeSlotKey);
+          }
+
+          
+
+          const affectedServiceVersionKeys = new Set<string>();
+          fault.targets?.services?.forEach(service => {
+            const ns = service.namespace ?? '';
+            const svc = service.serviceName;
+            const ver = service.version;
+
+            if (ver) {
+              // 精準指定版本
+              affectedServiceVersionKeys.add(`${svc.trim()}\t${ns.trim()}\t${ver.trim()}`);
+            } else {
+              // 未指定版本 → 加入所有版本（這裡先不篩選，等後續有 replicaCount 再過濾）
+              for (const key of replicaCountPerTimeSlot.values().next().value?.keys() ?? []) {
+                const [kNs, kSvc] = key.split(':');
+                if (kNs === ns && kSvc === svc) {
+                  affectedServiceVersionKeys.add(key);
+                }
+              }
+            }
+          });
+
+          const matchingKeys: string[] = [];
+
+          if (ver) {
+            matchingKeys.push(`${ns}:${svc}:${ver}`);
+          } else {
+            // 找所有版本
+            // 使用任一時間點的 replica map 抽出所有 key（代表所有 service:version）
+            const anyReplicaMap = replicaCountPerTimeSlot.values().next().value;
+            for (const key of anyReplicaMap?.keys?.() ?? []) {
+              const [kNs, kSvc] = key.split(':');
+              if (kNs === ns && kSvc === svc) {
+                matchingKeys.push(key);
+              }
+            }
+          }
+
+          // 調整對應時段內的 replica 數量
+          for (let h = 0; h < durationHours; h++) {
+            const currentHour = startHour + h;
+            const actualDay = day + Math.floor(currentHour / 24) - 1;
+            const actualHour = currentHour % 24;
+            const timeSlotKey = `${actualDay}-${actualHour}-0`;
+            const replicaMap = replicaCountPerTimeSlot.get(timeSlotKey);
+            if (!replicaMap) continue;
+
+            matchingKeys.forEach(uniqueServiceName => {
+              const original = replicaMap.get(uniqueServiceName) ?? 0;
+              const updated = Math.max(0, original - reduceCount);
+              replicaMap.set(uniqueServiceName, updated);
+            });
+          }
+        });
+
+      }
+
+
+    });
+
+    return allFaultRecords;
+  }
 
 }

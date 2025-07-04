@@ -3,6 +3,21 @@ import { requestType } from "./TRequestType";
 import { z } from "zod";
 
 /**** Yaml format checking ****/
+
+// Users do not need to provide uniqueServiceName; it will be populated by the system later.
+const uniqueServiceNameNotProvided = (data: { uniqueServiceName?: string }) => data.uniqueServiceName === undefined;
+const uniqueServiceNameRefineOptions = {
+  message: "uniqueServiceName is a system-generated field and should not be provided.",
+  path: ["uniqueServiceName"],
+};
+const uniqueEndpointNameNotProvided = (data: { uniqueEndpointName?: string }) => data.uniqueEndpointName === undefined;
+const uniqueEndpointNameRefineOptions = {
+  message: "uniqueEndpointName is a system-generated field and should not be provided.",
+  path: ["uniqueEndpointName"],
+};
+
+
+
 const fallbackStrategies = [
   "failIfAnyDependentFail",
   "failIfAllDependentFail",
@@ -52,20 +67,21 @@ export const simulationEndpointInfoSchema = z.object({
 }).strict();
 
 export const simulationEndpointSchema = z.object({
+  uniqueEndpointName: z.string().optional(),
   endpointId: endpointIdSchema,
   endpointInfo: simulationEndpointInfoSchema,
   datatype: simulationEndpointDatatypeSchema.optional(),
-}).strict();
+}).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
 
 export const simulationServiceVersionSchema = z.object({
-  serviceId: z.string().optional(),  // Users do not need to provide this; it will be populated by the system later.
+  uniqueServiceName: z.string().optional(),
   version: versionSchema,
   replica: z.number()
     .int({ message: "replica must be an integer." })
     .min(0, { message: "replica (the number of service instances) must be at least 0 to simulate injection." })
     .optional(),
   endpoints: z.array(simulationEndpointSchema),
-}).strict();
+}).strict().refine(uniqueServiceNameNotProvided, uniqueServiceNameRefineOptions);
 
 export const simulationServiceSchema = z.object({
   serviceName: z.string().min(1, { message: "service name cannot be empty." }),
@@ -78,17 +94,19 @@ export const simulationNamespaceSchema = z.object({
 }).strict();
 
 export const simulationDependOnSchema = z.object({
+  uniqueEndpointName: z.string().optional(),
   endpointId: endpointIdSchema,
   callRate: z.number().refine(
     (val) => val >= 0 && val <= 100,
     { message: "Invalid callRate. It must be between 0 and 100." }
   ).optional(),
-}).strict();
+}).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
 
 export const simulationEndpointDependencySchema = z.object({
+  uniqueEndpointName: z.string().optional(),
   endpointId: endpointIdSchema,
   dependOn: z.array(simulationDependOnSchema),
-}).strict();
+}).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
 
 
 export const loadSimulationConfigSchema = z.object({
@@ -106,14 +124,14 @@ export const loadSimulationConfigSchema = z.object({
 }).strict();
 
 export const simulationServiceVersionMetricSchema = z.object({
-  serviceId: z.string().optional(),   // Users do not need to provide this; it will be populated by the system later.
+  uniqueServiceName: z.string().optional(),
   version: versionSchema,
   capacityPerReplica: z.number()
     .int({ message: "capacityPerReplica must be an integer." })
     .min(1, { message: "capacityPerReplica must be at least 1." })
     .optional()
     .default(1),
-}).strict();
+}).strict().refine(uniqueServiceNameNotProvided, uniqueServiceNameRefineOptions);
 
 export const simulationServiceMetricSchema = z.object({
   serviceName: z.string().min(1, { message: "serviceName cannot be empty." }),
@@ -125,13 +143,16 @@ export const simulationNamespaceServiceMetricsSchema = z.object({
   services: z.array(simulationServiceMetricSchema),
 }).strict();
 
+const delaySchema = z.object({
+  latencyMs: z.number().min(0, { message: "latencyMs must be zero or greater." }).optional().default(0),
+  jitterMs: z.number().min(0, { message: "jitterMs must be zero or greater." }).optional().default(0),
+});
+
 export const simulationEndpointMetricSchema = z.object({
+  uniqueEndpointName: z.string().optional(),
   endpointId: endpointIdSchema,
-  latencyMs: z
-    .number()
-    .min(0, { message: "latencyMs must be zero or greater." })
-    .optional().default(0),
-  errorRatePercentage: z
+  delay: delaySchema.optional().default({ latencyMs: 0, jitterMs: 0 }),
+  errorRatePercent: z
     .number()
     .refine((val) => val >= 0 && val <= 100, {
       message: "Invalid errorRate. It must be between 0 and 100.",
@@ -143,12 +164,76 @@ export const simulationEndpointMetricSchema = z.object({
     .min(0, { message: "expectedExternalDailyRequestCount cannot be negative." })
     .optional().default(0),
   fallbackStrategy: z.enum(fallbackStrategies).optional().default(fallbackStrategies[0]),
+}).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
+
+
+
+const faultTimeSchema = z.object({
+  day: z.number().int().min(1).max(7),
+  startHour: z.number().int().min(0).max(23),
+  durationHours: z.number().int().min(1),
+});
+
+const faultTargetServiceSchema = z.object({
+  serviceName: z.string().min(1, { message: "serviceName cannot be empty." }),
+  namespace: z.string().min(1, { message: "namespace cannot be empty." }).optional(),
+  version: versionSchema.optional(),  // If not specified, applies to all versions of the service
 }).strict();
+
+const faultTargetEndpointSchema = z.object({
+  uniqueEndpointName: z.string().optional(),
+  endpointId: endpointIdSchema,
+}).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
+
+const increaseLatencyFaultSchema = z.object({
+  type: z.literal("increase-latency"),
+  targets: z.object({
+    services: z.array(faultTargetServiceSchema).optional(),
+    endpoints: z.array(faultTargetEndpointSchema).optional(),
+  }).strict(),
+  time: faultTimeSchema,
+  increaseLatencyMs: z
+    .number()
+    .min(0, { message: "increaseLatencyMs must be zero or greater." })
+}).strict();
+
+const increaseErrorRateFaultSchema = z.object({
+  type: z.literal("increase-error-rate"),
+  targets: z.object({
+    services: z.array(faultTargetServiceSchema).optional(),
+    endpoints: z.array(faultTargetEndpointSchema).optional(),
+  }).strict(),
+  time: faultTimeSchema,
+  increaseErrorRatePercent: z
+    .number()
+    .refine((val) => val >= 0 && val <= 100, {
+      message: "Invalid errorRate. It must be between 0 and 100.",
+    })
+}).strict();
+
+const reduceInstanceFaultSchema = z.object({
+  type: z.literal("reduce-instance"),
+  targets: z.object({
+    services: z.array(faultTargetServiceSchema).optional(),
+  }).strict(),
+  time: faultTimeSchema,
+  reduceCount: z.number().int().min(1),
+}).strict();
+
+export const faultsSchema = z.array(
+  z.discriminatedUnion("type", [
+    increaseLatencyFaultSchema,
+    increaseErrorRateFaultSchema,
+    reduceInstanceFaultSchema,
+  ])
+);
+
 
 export const loadSimulationSchema = z.object({
   config: loadSimulationConfigSchema.optional(),
   serviceMetrics: z.array(simulationNamespaceServiceMetricsSchema),
   endpointMetrics: z.array(simulationEndpointMetricSchema),
+  faults: faultsSchema.optional(),
 }).strict();
 
 export const simulationConfigYAMLSchema = z.object({
@@ -177,7 +262,8 @@ export type TSimulationServiceVersionMetric = z.infer<typeof simulationServiceVe
 export type TSimulationServiceMetric = z.infer<typeof simulationServiceMetricSchema>;
 export type TSimulationNamespaceServiceMetrics = z.infer<typeof simulationNamespaceServiceMetricsSchema>;
 export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
-export type TLoadSimulation = z.infer<typeof loadSimulationSchema>;
+export type TSimulationFaults = z.infer<typeof faultsSchema>;
+export type TLoadSimulationSettings = z.infer<typeof loadSimulationSchema>;
 
 
 export type TSimulationConfigYAML = z.infer<typeof simulationConfigYAMLSchema>;
