@@ -1,5 +1,4 @@
 import IRequestHandler from "../entities/TRequestHandler";
-import DependencyGraphSimulator from "../classes/Simulator/DependencyGraphSimulator";
 import Simulator from "../classes/Simulator/Simulator";
 import SimulationConfigManager from "../classes/Simulator/SimulationConfigManager";
 import { TGraphData } from "../entities/TGraphData";
@@ -11,50 +10,6 @@ import ImportExportHandler from "../services/ImportExportHandler";
 export default class SimulationService extends IRequestHandler {
   constructor() {
     super("simulation");
-
-    this.addRoute(
-      "post",
-      "/yamlToDependency",
-      async (req, res) => {
-        const { yamlData, showEndpoint } = req.body as { yamlData: string; showEndpoint: boolean };
-        const simulator = DependencyGraphSimulator.getInstance();
-        const decodedYAMLData = yamlData ? decodeURIComponent(yamlData) : '';
-        try {
-          const result = simulator.yamlToGraphData(decodedYAMLData);
-
-          const isEmptyYAML = !decodedYAMLData.trim();
-          const hasNoYamlFormatError = !result.errorMessage;
-
-          if (isEmptyYAML || hasNoYamlFormatError) {
-            if (showEndpoint) {
-              return res.status(200).json({ graph: result.graph, message: result.errorMessage });
-            } else { //service graph
-              return res.status(200).json({ graph: this.toServiceDependencyGraph(result.graph), message: result.errorMessage });
-            }
-
-          } else {
-            return res.status(400).json({ graph: result.graph, message: result.errorMessage });
-          }
-        } catch (err) {
-          return res.status(500).json({ graph: null, message: "Error converting YAML to graph data:\n---\n" + JSON.stringify(err instanceof Error ? err.message : String(err)) });
-        }
-      }
-    );
-
-    this.addRoute(
-      "post",
-      "/endpointDependencyToYAML",
-      async (req, res) => {
-        const endpointDependencyGraph = req.body as TGraphData;
-        if (!endpointDependencyGraph) {
-          res.json('');
-        }
-        const yamlString = DependencyGraphSimulator.getInstance().graphDataToYAML(endpointDependencyGraph);
-        res.json(yamlString);
-
-      }
-    );
-
     this.addRoute(
       "post",
       "/retrieveDataByYAML",
