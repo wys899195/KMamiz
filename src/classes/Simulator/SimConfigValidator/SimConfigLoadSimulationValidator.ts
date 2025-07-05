@@ -96,7 +96,7 @@ export default class SimConfigLoadSimulationValidator {
       if (seenEndpointIds.has(m.endpointId)) {
         errorMessages.push({
           errorLocation: errorLocation,
-          message: `Duplicate endpointId "${m.endpointId}" found in endpointMetrics.`,
+          message: `Duplicate endpointId "${m.uniqueEndpointName}" found in endpointMetrics.`,
         });
       } else {
         seenEndpointIds.add(m.endpointId);

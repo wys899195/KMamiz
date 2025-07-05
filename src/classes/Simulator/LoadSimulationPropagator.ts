@@ -2,9 +2,10 @@ import {
   TEndpointPropagationStatsForOneTimeSlot,
 } from "../../entities/TLoadSimulation";
 import {
-  TFallbackStrategy
+  TFallbackStrategy,
+  TSimulationEndpointDelay
 } from "../../entities/TSimulationConfig";
-
+import SimulatorUtils from "./SimulatorUtils";
 interface ErrorPropagationStrategy {
   /**
    * Determines whether to adjust the endpoint status based on errors from dependent endpoints for a given request
@@ -64,7 +65,7 @@ export default class LoadSimulationPropagator {
   simulatePropagation(
     dependOnMap: Map<string, Set<string>>,
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
-    latencyMapPerTimeSlot: Map<string, Map<string, number>>,
+    delayWithFaultMapPerTimeSlot: Map<string, Map<string, TSimulationEndpointDelay>>,
     errorRatePerTimeSlot: Map<string, Map<string, number>>,
     replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
     fallbackStrategyMap: Map<string, TFallbackStrategy>,
@@ -78,18 +79,18 @@ export default class LoadSimulationPropagator {
      * Value: Map<string, TEndpointPropagationStats> - Details for all endpoints active during a specific time slot.
      *
      * Inner Map (Value of Top-level Map):
-     * Key:   string - The unique ID of a target endpoint (endpointId).
+     * Key:   string - uniqueEndpointName
      * Value: TEndpointPropagationStats
      */
 
     // console.log("dependOnMap", dependOnMap);
     // console.log("entryEndpointRequestCountsMapByTimeSlot",entryEndpointRequestCountsMapByTimeSlot);
-    // console.log("latencyMap", latencyMap);
+    // console.log("delayWithFaultMapPerTimeSlot", delayWithFaultMapPerTimeSlot);
     // console.log("errorRateMap", errorRateMap);
     // console.log("resuit", this.simulatePropagation(
     //   dependOnMap,
     //   entryEndpointRequestCountsMapByTimeSlot,
-    //   latencyMap,
+    //   delayWithFaultMapPerTimeSlot,
     //   () => errorRateMap
     // ))
     const results: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> = new Map();
@@ -113,7 +114,7 @@ export default class LoadSimulationPropagator {
       const propagationResultAtThisTimeSlot = this.simulatePropagationInSingleTimeSlot(
         entryPointReqestCountMap,
         dependOnMap,
-        latencyMapPerTimeSlot.get(timeSlotKey) || new Map<string, number>(),
+        delayWithFaultMapPerTimeSlot.get(timeSlotKey) || new Map<string, TSimulationEndpointDelay>(),
         errorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>(),
         replicaCountMap,
         preprocessedFallbackStrategyMap,
@@ -131,18 +132,18 @@ export default class LoadSimulationPropagator {
   private simulatePropagationInSingleTimeSlot(
     entryPointReqestCountMap: Map<string, number>,
     dependOnMap: Map<string, Set<string>>,
-    latencyMap: Map<string, number>,
+    delayMap: Map<string, TSimulationEndpointDelay>,
     errorRateMap: Map<string, number>,
     replicaCountMap: Map<string, number>,
     fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
     shouldComputeLatency: boolean
   ): Map<string, TEndpointPropagationStatsForOneTimeSlot> {
-    const stats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>(); // key: endpointID value: TEndpointPropagationStats for this endpoint
+    const stats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>(); // key: uniqueEndpointName value: TEndpointPropagationStats for this endpoint
 
     // console.log("dependOnMap=", dependOnMap)
 
     // Store actual latencies of all requests for each endpointNode and status code, for later average calculation
-    // key: endpointId, value: Map<statusCode, number[]>
+    // key: uniqueEndpointName, value: Map<statusCode, number[]>
     const allLatenciesPerNodeByStatus = new Map<string, Map<string, number[]>>();
 
     // Generate request IDs, format: 'endpoint-0', 'endpoint-1' ...
@@ -155,32 +156,32 @@ export default class LoadSimulationPropagator {
     }
 
     // DFS to simulate errors and calculate actual latency for each request
-    function dfsForPropagate(
-      endpointId: string,
+    const dfsForPropagate = (
+      uniqueEndpointName: string,
       requestIds: string[],
-    ): { statusMap: Map<string, boolean>; latencyMap: Map<string, number> } {
+    ): { statusMap: Map<string, boolean>; latencyMap: Map<string, number> } => {
 
       const currentStatus = new Map<string, boolean>();
       const totalLatencyMap = new Map<string, number>();
 
-      const uniqueServiceName = endpointId.split('\t').slice(0, 3).join('\t');
+      const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
       const replica = replicaCountMap.get(uniqueServiceName) ?? 1;
 
-      // 針對 replica = 0 的端點做特殊處理
+     // When a service has replica = 0, it always returns failure to upstream and does not propagate requests downstream.
       if (replica === 0) {
         for (const reqId of requestIds) {
-          // endpoint 自己永遠成功（不算 ownError），
-          // 但回傳給上游狀態為失敗 (false)，
-          // latency = 0
+          // The endpoint itself always succeeds (not counted as an ownError),
+          // but reports a failure (false) to upstream callers,
+          // and the latency is treated as 0.
           currentStatus.set(reqId, false);
           totalLatencyMap.set(reqId, 0);
         }
-        // 不往下傳播
+        // Do not propagate to downstream dependencies
         return { statusMap: currentStatus, latencyMap: totalLatencyMap };
       }
 
-      const errorRate = errorRateMap.get(endpointId) ?? 0;
-      const baseLatency = latencyMap.get(endpointId) ?? 0;
+      const errorRate = errorRateMap.get(uniqueEndpointName) ?? 0;
+      const delay: TSimulationEndpointDelay = delayMap.get(uniqueEndpointName) || { latencyMs: 0, jitterMs: 0 };
 
       // Simulate this endpointNode's own error state
       const ownSuccessMap = new Map<string, boolean>();
@@ -188,12 +189,12 @@ export default class LoadSimulationPropagator {
         const isError = Math.random() < errorRate;
         ownSuccessMap.set(reqId, !isError);
         currentStatus.set(reqId, !isError);
-
-        totalLatencyMap.set(reqId, baseLatency); // Default latency starts as own latency
+        const jitteredLatency = this.getJitteredLatency(delay.latencyMs, delay.jitterMs);
+        totalLatencyMap.set(reqId, jitteredLatency); // Default latency starts as own latency
       }
 
       // Get dependent endpoints
-      const dependents = dependOnMap.get(endpointId);
+      const dependents = dependOnMap.get(uniqueEndpointName);
 
       if (dependents && dependents.size > 0) {
         // dependent endpoints' latencies for each request
@@ -234,12 +235,12 @@ export default class LoadSimulationPropagator {
 
           // Use the strategy to decide the new parent status
           const parentCurrentSuccess = currentStatus.get(reqId)!;
-          const fallbackStrategy = fallbackStrategyMap.get(endpointId) ?? new FailIfAnyDependentFailsStrategy();
+          const fallbackStrategy = fallbackStrategyMap.get(uniqueEndpointName) ?? new FailIfAnyDependentFailsStrategy();
           const newParentSuccess = fallbackStrategy.propagateError(parentCurrentSuccess, dependentSuccessList);
           currentStatus.set(reqId, newParentSuccess);
         }
 
-        // Update actual latency using the maximum dependent latency
+        // Update actual latency using the maximum dependent latency(Critical Path Latency in DAG)
         for (const reqId of requestIds) {
           if (currentStatus.get(reqId)) {
             const dependentLats = dependentLatenciesPerRequest.get(reqId) ?? [];
@@ -251,10 +252,10 @@ export default class LoadSimulationPropagator {
       }
 
       // Store all request latencies for this endpointNode by status code
-      if (!allLatenciesPerNodeByStatus.has(endpointId)) {
-        allLatenciesPerNodeByStatus.set(endpointId, new Map<string, number[]>());
+      if (!allLatenciesPerNodeByStatus.has(uniqueEndpointName)) {
+        allLatenciesPerNodeByStatus.set(uniqueEndpointName, new Map<string, number[]>());
       }
-      const latMap = allLatenciesPerNodeByStatus.get(endpointId)!;
+      const latMap = allLatenciesPerNodeByStatus.get(uniqueEndpointName)!;
       for (const reqId of requestIds) {
         const statusCode = currentStatus.get(reqId) ? "200" : "500";
         if (!latMap.has(statusCode)) {
@@ -276,13 +277,13 @@ export default class LoadSimulationPropagator {
       }
 
       // Update endpointNode statistics
-      const prevStats = stats.get(endpointId) ?? {
+      const prevStats = stats.get(uniqueEndpointName) ?? {
         requestCount: 0,
         ownErrorCount: 0,
         downstreamErrorCount: 0,
         latencyStatsByStatus: new Map<string, { mean: number; cv: number }>(),
       };
-      stats.set(endpointId, {
+      stats.set(uniqueEndpointName, {
         requestCount: prevStats.requestCount + requestIds.length,
         ownErrorCount: prevStats.ownErrorCount + ownErrorCount,
         downstreamErrorCount: prevStats.downstreamErrorCount + downstreamErrorCount,
@@ -299,8 +300,8 @@ export default class LoadSimulationPropagator {
     }
 
     // Calculate average latency and CV per status code, then update stats
-    for (const [endpointId, latByStatus] of allLatenciesPerNodeByStatus.entries()) {
-      const prevStats = stats.get(endpointId)!;
+    for (const [uniqueEndpointName, latByStatus] of allLatenciesPerNodeByStatus.entries()) {
+      const prevStats = stats.get(uniqueEndpointName)!;
       const latencyStatsByStatus = new Map<string, { mean: number; cv: number }>();
       for (const [status, latencies] of latByStatus.entries()) {
         latencyStatsByStatus.set(
@@ -308,7 +309,7 @@ export default class LoadSimulationPropagator {
           shouldComputeLatency ? this.computeMeanAndCVByWelford(latencies) : { mean: 0, cv: 0 }
         );
       }
-      stats.set(endpointId, {
+      stats.set(uniqueEndpointName, {
         ...prevStats,
         latencyStatsByStatus,
       });
@@ -341,12 +342,18 @@ export default class LoadSimulationPropagator {
   private preprocessFallbackStrategyMap(fallbackStrategyMap: Map<string, TFallbackStrategy>): Map<string, ErrorPropagationStrategy> {
     const result = new Map<string, ErrorPropagationStrategy>();
 
-    for (const [endpointId, strategyName] of fallbackStrategyMap.entries()) {
+    for (const [uniqueEndpointName, strategyName] of fallbackStrategyMap.entries()) {
       const strategyInstance = this.strategyInstances[strategyName];
-      result.set(endpointId, strategyInstance);
+      result.set(uniqueEndpointName, strategyInstance);
     }
 
     return result;
   }
 
+  private getJitteredLatency(baseLatency: number, jitterMs: number): number {
+    const min = baseLatency - jitterMs;
+    const max = baseLatency + jitterMs;
+    const jittered = Math.random() * (max - min) + min;
+    return Math.max(0, jittered); // Ensure latency is not negative
+  }
 }

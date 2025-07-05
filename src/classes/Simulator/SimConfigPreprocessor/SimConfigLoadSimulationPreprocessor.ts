@@ -10,12 +10,11 @@ export default class SimConfigLoadSimulationPreprocessor {
   preprocess(
     loadSimulationSettings: TLoadSimulationSettings,
     endpointIdToUniqueNameMap: Map<string, string>, // key: endpointId, value: UniqueEndpointName
-    allDefinedEndpointIds: Set<string>,
   ): TSimulationConfigErrors[] {
     const assignUniqueEndpointNameErrors = this.assignUniqueEndpointName(loadSimulationSettings, endpointIdToUniqueNameMap);
     if (assignUniqueEndpointNameErrors.length) return assignUniqueEndpointNameErrors;
     
-    this.addDefaultMetricsForMissingEndpointsInPlace(loadSimulationSettings,allDefinedEndpointIds);
+    this.addDefaultMetricsForMissingEndpointsInPlace(loadSimulationSettings,endpointIdToUniqueNameMap);
 
     // If no errors found, return an empty array.
     return [];
@@ -37,7 +36,7 @@ export default class SimConfigLoadSimulationPreprocessor {
         const errorLocation = `loadSimulation.endpointMetrics[${index}].endpointId`;
         errorMessages.push({
           errorLocation: errorLocation,
-          message: `Failed to assign uniqueEndpointName: endpointId "${epMetric.endpointId}" does not exist in the mapping. (This is unexpected system error!!)`
+          message: `Failed to assign uniqueEndpointName: endpointId "${epMetric.uniqueEndpointName}" does not exist in the mapping. (This is unexpected system error!!)`
         });
       }
     });
@@ -47,12 +46,12 @@ export default class SimConfigLoadSimulationPreprocessor {
       if (fault.type != "reduce-instance") {
         if (fault.targets?.endpoints) {
           fault.targets.endpoints.forEach((ep, epIndex) => {
-            const originalId = ep.endpointId;
+            const originalId = ep.uniqueEndpointName!;
             const mappedId = endpointIdToUniqueNameMap.get(originalId);
             const errorLocation = `faults[${faultIndex}].targets.endpoints[${epIndex}].endpointId`;
 
             if (mappedId) {
-              ep.endpointId = mappedId;
+              ep.uniqueEndpointName! = mappedId;
             } else {
               errorMessages.push({
                 errorLocation,
@@ -71,17 +70,19 @@ export default class SimConfigLoadSimulationPreprocessor {
   // Avoid missing base error rates for endpoints when adjusting error rates during load simulation
   private addDefaultMetricsForMissingEndpointsInPlace(
     loadSimulationSettings: TLoadSimulationSettings,
-    allDefinedEndpointIds: Set<string>,
+    endpointIdToUniqueNameMap: Map<string, string>
   ) {
+    const allDefinedEndpointIds = new Set(endpointIdToUniqueNameMap.keys());
     const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
-    const existingMetricIds = new Set(endpointMetrics.map(m => m.endpointId));
-    const missingEndpointIds = Array.from(allDefinedEndpointIds).filter(id => !existingMetricIds.has(id));
-    const defaultMetrics = missingEndpointIds.map(id => ({
+    const existingMetricEndpointIds = new Set(endpointMetrics.map(m => m.endpointId));
+    const missingEndpointIds = Array.from(allDefinedEndpointIds).filter(id => !existingMetricEndpointIds.has(id));
+    const defaultMetrics: TSimulationEndpointMetric[] = missingEndpointIds.map(id => ({
       endpointId: id,
       delay: { latencyMs: 0, jitterMs: 0 },
       expectedExternalDailyRequestCount: 0,
       errorRatePercent: 0,
-      fallbackStrategy: "failIfAnyDependentFail" as TFallbackStrategy
+      fallbackStrategy: "failIfAnyDependentFail" as TFallbackStrategy,
+      uniqueEndpointName: endpointIdToUniqueNameMap.get(id)!,
     }));
     loadSimulationSettings.endpointMetrics = [...endpointMetrics, ...defaultMetrics];
 

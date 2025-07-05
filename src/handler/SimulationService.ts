@@ -1,7 +1,6 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import Simulator from "../classes/Simulator/Simulator";
 import SimulationConfigManager from "../classes/Simulator/SimulationConfigManager";
-import { TGraphData } from "../entities/TGraphData";
 import ServiceOperator from "../services/ServiceOperator";
 import ImportExportHandler from "../services/ImportExportHandler";
 // import { CTaggedSimulationYAML } from "../classes/Cacheable/CTaggedSimulationYAML";
@@ -75,31 +74,6 @@ export default class SimulationService extends IRequestHandler {
         }
       }
     );
-  }
-
-  private toServiceDependencyGraph(endpointGraph: TGraphData): TGraphData {
-    const linkSet = new Set<string>();
-    endpointGraph.links.forEach((l) => {
-      const source = l.source.split("\t").slice(0, 2).join("\t");
-      const target = l.target.split("\t").slice(0, 2).join("\t");
-      linkSet.add(`${source}\n${target}`);
-    });
-
-    const links = [...linkSet]
-      .map((l) => l.split("\n"))
-      .map(([source, target]) => ({ source, target }));
-
-    const nodes = endpointGraph.nodes.filter((n) => n.id === n.group);
-    nodes.forEach((n) => {
-      n.linkInBetween = links.filter((l) => l.source === n.id);
-      n.dependencies = n.linkInBetween.map((l) => l.target);
-    });
-
-    const serviceGraph: TGraphData = {
-      nodes,
-      links,
-    };
-    return serviceGraph;
   }
 
 }

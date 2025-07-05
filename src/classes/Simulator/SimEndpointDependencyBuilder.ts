@@ -55,7 +55,7 @@ export default class SimEndpointDependencyBuilder {
     const dependByMap = new Map<string, Set<string>>();
 
     dependencies?.forEach(dep => {
-      const from = dep.endpointId;
+      const from = dep.uniqueEndpointName!;
       const toList = dep.dependOn || [];
 
       let dependOnSet = dependOnMap.get(from);
@@ -66,13 +66,13 @@ export default class SimEndpointDependencyBuilder {
 
       toList.forEach(to => {
         // Establish dependency A -> B
-        dependOnSet!.add(to.endpointId);
+        dependOnSet!.add(to.uniqueEndpointName!);
 
         // Establish reverse dependency B <- A
-        let dependBySet = dependByMap.get(to.endpointId);
+        let dependBySet = dependByMap.get(to.uniqueEndpointName!);
         if (!dependBySet) {
           dependBySet = new Set();
-          dependByMap.set(to.endpointId, dependBySet);
+          dependByMap.set(to.uniqueEndpointName!, dependBySet);
         }
         dependBySet!.add(from);
       });
@@ -107,9 +107,9 @@ export default class SimEndpointDependencyBuilder {
 
 
             // create TEndpointInfo and insert into endpointInfoSet(used to create endpointDependencies)
-            endpointInfoSet.set(ep.endpointId, {
+            endpointInfoSet.set(ep.uniqueEndpointName!, {
               uniqueServiceName,
-              uniqueEndpointName: ep.endpointId,
+              uniqueEndpointName: ep.uniqueEndpointName!,
               service: svc.serviceName,
               namespace: ns.namespace,
               version: ver.version,

@@ -15,6 +15,34 @@ export default class LoadSimulationDataGenerator {
   ): Map<string, TCombinedRealtimeData[]> {
     const realtimeDataPerTimeSlot = new Map<string, TCombinedRealtimeData[]>(); // key: timeSlotKey,format is"day-hour-minute"
 
+    console.log("generateRealtimeDataFromSimulationResults")
+    console.log("=== Propagation Final Results ===");
+
+    propagationFinalResults.forEach((innerMap, outerKey) => {
+      console.log(` "${outerKey}"`);
+
+      innerMap.forEach((stats, endpointKey) => {
+        console.log(`  Endpoint: ${endpointKey}`);
+        console.dir(stats, { depth: null }); // 展開 stats 的所有欄位
+      });
+    });
+
+    // console.log("=== baseDataMap ===");
+    // baseDataMap.forEach((value, key) => {
+    //   console.log(`Key: ${key}`);
+    //   console.log(`  uniqueServiceName: ${value.baseData.uniqueServiceName}`);
+    //   console.log(`  uniqueEndpointName: ${value.baseData.uniqueEndpointName}`);
+    //   console.log(`  method: ${value.baseData.method}`);
+    //   console.log(`  service: ${value.baseData.service}`);
+    //   console.log(`  namespace: ${value.baseData.namespace}`);
+    //   console.log(`  version: ${value.baseData.version}`);
+
+    //   if (value.responses) {
+    //     console.log(`  responses:`);
+    //     console.dir(value.responses, { depth: null });
+    //   }
+    // });
+
     for (const [timeSlotKey, statsOnSpecificTimeSlot] of propagationFinalResults.entries()) {
       // timestamp
       const [dayStr, hourStr, minuteStr] = timeSlotKey.split('-');
@@ -27,17 +55,16 @@ export default class LoadSimulationDataGenerator {
 
 
       const combinedList: TCombinedRealtimeData[] = [];
-      for (const [endpointId, stats] of statsOnSpecificTimeSlot.entries()) {
-        const baseDataWithResp = baseDataMap.get(endpointId);
+      for (const [uniqueEndpointName, stats] of statsOnSpecificTimeSlot.entries()) {
+        const baseDataWithResp = baseDataMap.get(uniqueEndpointName);
         if (!baseDataWithResp) continue;
 
         const { baseData, responses } = baseDataWithResp;
         const errorCount = stats.ownErrorCount + stats.downstreamErrorCount;
         const successCount = stats.requestCount - errorCount;
-
-
         if (successCount > 0) {
-          const resp2xx = responses?.find(r => r.status.startsWith("2"));
+
+          const resp2xx = responses?.find(res => res.status.startsWith("2"));
           combinedList.push({
             ...baseData,
             latestTimestamp: timestampMicro,
@@ -52,7 +79,7 @@ export default class LoadSimulationDataGenerator {
         }
 
         if (errorCount > 0) {
-          const resp5xx = responses?.find(r => r.status.startsWith("5"));
+          const resp5xx = responses?.find(res => res.status.startsWith("5"));
           combinedList.push({
             ...baseData,
             latestTimestamp: timestampMicro,

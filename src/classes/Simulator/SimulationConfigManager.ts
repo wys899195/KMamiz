@@ -58,10 +58,8 @@ export default class SimulationConfigManager {
       };
     }
     try {
-      // parse YAML
+      // Parse YAML and validate it using Zod schema
       const parsedConfig = yaml.load(yamlString) as TSimulationConfigYAML;
-
-      // zod schema validation
       const schemaValidationResult = simulationConfigYAMLSchema.safeParse(parsedConfig);
       if (!schemaValidationResult.success) {
         return {
@@ -77,9 +75,10 @@ export default class SimulationConfigManager {
           parsedConfig: null,
         };
       }
+      const parsedConfigAfterZod = schemaValidationResult.data;
 
-      // validate and preprocess details
-      const validationAndPreprocessingErrors: TSimulationConfigErrors[] = this.validationAndPreprocessing(parsedConfig);
+      // validate and preprocess parsed config after Zod 
+      const validationAndPreprocessingErrors: TSimulationConfigErrors[] = this.validationAndPreprocessing(parsedConfigAfterZod);
       if (validationAndPreprocessingErrors.length) {
         return {
           errorMessage: [
@@ -89,11 +88,12 @@ export default class SimulationConfigManager {
           parsedConfig: null,
         };
       };
-
+      // console.log("parsedConfig = ",JSON.stringify(parsedConfig,null,2))
+      // console.log("parsedConfig = ",yaml.dump(parsedConfigAfterZod))
       // success
       return {
         errorMessage: "",
-        parsedConfig: parsedConfig,
+        parsedConfig: parsedConfigAfterZod,
       }
     } catch (e) {
       return {
@@ -113,21 +113,21 @@ export default class SimulationConfigManager {
     if (errorMessages.length) return errorMessages;
 
     // Provide the service and endpoint information defined in servicesInfo for validating endpointDependencies and loadSimulation. 
-    const endpointIdUniqueNameMap = this.getEndpointIdToUniqueNameMap(parsedConfig.servicesInfo);
-    const allDefinedEndpointIds = new Set(endpointIdUniqueNameMap.keys());
+    const endpointIdToUniqueNameMap = this.getEndpointIdToUniqueNameMap(parsedConfig.servicesInfo);
+    const allDefinedEndpointIds = new Set(endpointIdToUniqueNameMap.keys());
     const allAssignedUniqueServiceNames = this.getAllAssignedUniqueServiceNameSet(parsedConfig.servicesInfo);
 
     // validate and preprocess endpointDependencies
     errorMessages = this.endpointDependenciesValidator.validate(parsedConfig.endpointDependencies, allDefinedEndpointIds);
     if (errorMessages.length) return errorMessages;
-    errorMessages = this.endpointDependenciesPreprocessor.preprocess(parsedConfig.endpointDependencies, endpointIdUniqueNameMap)
+    errorMessages = this.endpointDependenciesPreprocessor.preprocess(parsedConfig.endpointDependencies, endpointIdToUniqueNameMap)
     if (errorMessages.length) return errorMessages;
 
     // validate and preprocess loadSimulation
     if (parsedConfig.loadSimulation) {
       errorMessages = this.loadSimulationValidator.validate(parsedConfig.loadSimulation, allAssignedUniqueServiceNames, allDefinedEndpointIds);
       if (errorMessages.length) return errorMessages;
-      errorMessages = this.loadSimulationPreprocessor.preprocess(parsedConfig.loadSimulation, endpointIdUniqueNameMap, allDefinedEndpointIds);
+      errorMessages = this.loadSimulationPreprocessor.preprocess(parsedConfig.loadSimulation, endpointIdToUniqueNameMap);
       if (errorMessages.length) return errorMessages;
     }
     // If no errors found, return an empty array.
@@ -162,7 +162,6 @@ export default class SimulationConfigManager {
     });
     return definedUniqueServiceName;
   }
-
 
   generateStaticSimConfig(): string {
     return this.generator.generateSimConfigFromCurrentStaticData();

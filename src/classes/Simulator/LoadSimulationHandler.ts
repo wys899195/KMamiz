@@ -3,7 +3,8 @@ import {
   TSimulationEndpointMetric,
   TLoadSimulationSettings,
   TLoadSimulationConfig,
-  TFallbackStrategy
+  TFallbackStrategy,
+  TSimulationEndpointDelay
 } from "../../entities/TSimulationConfig";
 import {
   TBaseDataWithResponses,
@@ -44,7 +45,7 @@ export default class LoadSimulationHandler {
     const {
       entryEndpointRequestCountsMapByTimeSlot,
       replicaCountPerTimeSlot,
-      basicLatencyWithFaultMapPerTimeSlot,
+      delayWithFaultMapPerTimeSlot,
       basicErrorRateWithFaultMapPerTimeSlot,
       fallbackStrategyMap
     } = this.getTrafficMap(basicReplicaCountList, endpointMetrics, allFaultRecords, loadSimulationSettings.config);
@@ -52,11 +53,11 @@ export default class LoadSimulationHandler {
 
     // Use the basic error rate to simulate traffic propagation and calculate the 
     // expected incoming traffic for each service under normal (non-overloaded) conditions
-    // propagationResultsWithBasicError: Map<Key: "day-hour-minute", Value: Map< key: endpointId, value:requestCount>>
+    // propagationResultsWithBasicError: Map<Key: "day-hour-minute", Value: Map< key: uniqueEndpointName, value:requestCount>>
     const propagationResultsWithBasicError = this.propagator.simulatePropagation(
       dependOnMap,
       entryEndpointRequestCountsMapByTimeSlot,
-      basicLatencyWithFaultMapPerTimeSlot,
+      delayWithFaultMapPerTimeSlot,
       basicErrorRateWithFaultMapPerTimeSlot,
       replicaCountPerTimeSlot,
       fallbackStrategyMap,
@@ -85,7 +86,7 @@ export default class LoadSimulationHandler {
     const propagationResultsWithOverloadError = this.propagator.simulatePropagation(
       dependOnMap,
       entryEndpointRequestCountsMapByTimeSlot,
-      basicLatencyWithFaultMapPerTimeSlot,
+      delayWithFaultMapPerTimeSlot,
       adjustedErrorRateMapPerTimeSlot,
       replicaCountPerTimeSlot,
       fallbackStrategyMap,
@@ -97,8 +98,8 @@ export default class LoadSimulationHandler {
     // console.log("propagationResultsWithOverloadError =")
     // for (const [timeKey, endpointMap] of propagationResultsWithOverloadError.entries()) {
     //   console.log(`Time: ${timeKey}`);
-    //   for (const [endpointId, stats] of endpointMap.entries()) {
-    //     console.log(`  Endpoint: ${endpointId}`);
+    //   for (const [uniqueEndpointName, stats] of endpointMap.entries()) {
+    //     console.log(`  Endpoint: ${uniqueEndpointName}`);
     //     console.log(`    requestCount: ${stats.requestCount}`);
     //     console.log(`    ownErrorCount: ${stats.ownErrorCount}`);
     //     console.log(`    downstreamErrorCount: ${stats.downstreamErrorCount}`);
@@ -122,16 +123,16 @@ export default class LoadSimulationHandler {
     basicReplicaCountList: TReplicaCount[],
     endpointMetrics: TSimulationEndpointMetric[],
     allFaultRecords: Map<string, Map<string, Fault>>,
-    loadSimulationConfig?: TLoadSimulationConfig,
+    loadSimulationConfig: TLoadSimulationConfig,
   ): {
-    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>; //key: day-hour-minute, value: Map where Key is endpointId and Value is request count
+    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>; //key: day-hour-minute, value: Map where Key is uniqueEndpointName and Value is request count
     replicaCountPerTimeSlot: Map<string, Map<string, number>> // key: day-hour-minute, value: Map where Key is uniqueServiceName and Value is replica count
-    basicLatencyWithFaultMapPerTimeSlot: Map<string, Map<string, number>>;  // key: day-hour-minute, value: Map<endpointId, latency in milliseconds (>= 0) including basic and fault injection>
-    basicErrorRateWithFaultMapPerTimeSlot: Map<string, Map<string, number>>;// key: day-hour-minute, value: Map<endpointId, error rate [0..1] including basic and fault injection>
-    fallbackStrategyMap: Map<string, TFallbackStrategy>; // Key: endpointId, Value: fallback strategy for the endpoint
+    delayWithFaultMapPerTimeSlot: Map<string, Map<string, TSimulationEndpointDelay>>;  // key: day-hour-minute, value: Map of uniqueEndpointName to latency (including base and fault injection) and jitterMs
+    basicErrorRateWithFaultMapPerTimeSlot: Map<string, Map<string, number>>;// key: day-hour-minute, value: Map<uniqueEndpointName, error rate [0..1] including basic and fault injection>
+    fallbackStrategyMap: Map<string, TFallbackStrategy>; // Key: uniqueEndpointName, Value: fallback strategy for the endpoint
   } {
-    const basicLatencyMap = new Map<string, number>();
-    const basicLatencyWithFaultMapPerTimeSlot = new Map<string, Map<string, number>>();
+    const basicDelayMap = new Map<string, TSimulationEndpointDelay>();
+    const delayWithFaultMapPerTimeSlot = new Map<string, Map<string, TSimulationEndpointDelay>>();
 
     const basicErrorRateMap = new Map<string, number>();
     const basicErrorRateWithFaultMapPerTimeSlot = new Map<string, Map<string, number>>();
@@ -144,14 +145,14 @@ export default class LoadSimulationHandler {
       return {
         entryEndpointRequestCountsMapByTimeSlot,
         replicaCountPerTimeSlot,
-        basicLatencyWithFaultMapPerTimeSlot,
+        delayWithFaultMapPerTimeSlot,
         basicErrorRateWithFaultMapPerTimeSlot,
         fallbackStrategyMap
       };
     }
 
-    const simulationDurationInDays = loadSimulationConfig?.simulationDurationInDays ?? 1;
-    const probabilityOfMutation = (loadSimulationConfig?.mutationRatePercentage ?? 25) / 100;
+    const simulationDurationInDays = loadSimulationConfig.simulationDurationInDays;
+    const probabilityOfMutation = loadSimulationConfig.mutationRatePercentage / 100;
 
     // Currently uses 24 intervals per day (i.e., 1-hour intervals)
     for (let day = 0; day < simulationDurationInDays; day++) {
@@ -163,25 +164,28 @@ export default class LoadSimulationHandler {
         replicaCountPerTimeSlot.set(timeSlotKey, replicaCountMapInThisTimeslot)
       }
     }
-
+    // console.log("endpointMetricsccc", endpointMetrics);
     for (const metric of endpointMetrics) {
-      const endpointId = metric.endpointId;
+      const uniqueEndpointName = metric.uniqueEndpointName!;
 
-      // basicLatencyMap
-      const basicLatencyMs = metric.delay?.latencyMs ?? 0;
-      basicLatencyMap.set(endpointId, basicLatencyMs);
+      // basicDelayMap
+      // console.log("metricccc", metric)
+      basicDelayMap.set(uniqueEndpointName, {
+        latencyMs: metric.delay.latencyMs,
+        jitterMs: metric.delay.jitterMs
+      });
 
       // basicErrorRateMap
-      const errorRate = (metric.errorRatePercent ?? 0) / 100;
-      basicErrorRateMap.set(endpointId, errorRate);
+      const errorRate = (metric.errorRatePercent) / 100;
+      basicErrorRateMap.set(uniqueEndpointName, errorRate);
 
       // fallbackStrategyMap
       const fallbackStrategy = metric.fallbackStrategy;
-      fallbackStrategyMap.set(endpointId, fallbackStrategy);
+      fallbackStrategyMap.set(uniqueEndpointName, fallbackStrategy);
 
       // Request Counts for Each Day
       // Map to store request counts for this specific endpoint across all simulated "day-hour-minute" intervals
-      const baseDailyRequestCount = metric.expectedExternalDailyRequestCount ?? 0;
+      const baseDailyRequestCount = metric.expectedExternalDailyRequestCount;
       if (baseDailyRequestCount === 0) continue;
 
       // Currently uses 24 intervals per day (i.e., 1-hour intervals)
@@ -192,65 +196,61 @@ export default class LoadSimulationHandler {
         this.updateRequestCountsMapByTimeSlot(
           entryEndpointRequestCountsMapByTimeSlot,
           day,
-          endpointId,
+          uniqueEndpointName,
           realRequestCountForThisDay,
           probabilityOfMutation
         );
       }
     }
 
-    // Construct latencyMapPerTimeSlot and errorRateMapPerTimeSlot from basic map + fault injection
+    console.log("basicDelayMap", basicDelayMap);
+    console.log("basicErrorRateMap", basicErrorRateMap);
+
+    // Construct delayWithFaultMapPerTimeSlot and errorRateMapPerTimeSlot from basic map + fault injection
     for (let day = 0; day < simulationDurationInDays; day++) {
       for (let hour = 0; hour < 24; hour++) {
         const timeSlotKey = `${day}-${hour}-0`;
 
 
         // Start with the basic values
-        const latencyMapThisSlot = new Map(basicLatencyMap);
+        const delayMapThisSlot = new Map(basicDelayMap);
         const errorRateMapThisSlot = new Map(basicErrorRateMap);
-
-        // 針對每個 endpoint 做 jitter 隨機浮動
-        for (const [endpointId, baseLatency] of basicLatencyMap.entries()) {
-          // 找到對應的 jitterMs
-          const metric = endpointMetrics.find(m => m.endpointId === endpointId);
-          const jitterMs = metric?.delay?.jitterMs ?? 0;
-
-          // jitter浮動，且確保不小於0
-          const jitteredLatency = Math.max(0, baseLatency + this.getRandom(-jitterMs, jitterMs));
-          latencyMapThisSlot.set(endpointId, jitteredLatency);
-        }
 
         // Inject fault-based adjustments
         const faultsForThisTimeSlot = allFaultRecords.get(timeSlotKey);
         if (faultsForThisTimeSlot) {
-          for (const [endpointId, fault] of faultsForThisTimeSlot.entries()) {
+          for (const [uniqueEndpointName, fault] of faultsForThisTimeSlot.entries()) {
             // Latency injection
-            const extraLatency = fault.getIncreaseLatency();
-            const originalLatency = latencyMapThisSlot.get(endpointId) ?? 0;
-            latencyMapThisSlot.set(endpointId, originalLatency + extraLatency);
+            const originalDelay = delayMapThisSlot.get(uniqueEndpointName);
+            if (originalDelay){
+            delayMapThisSlot.set(uniqueEndpointName, {
+              latencyMs: originalDelay.latencyMs + fault.getIncreaseLatency(),
+              jitterMs: originalDelay.jitterMs,
+            });
+            }
 
             // Error rate injection
             const extraErrorRate = fault.getIncreaseErrorRatePercent() / 100;
-            const originalErrorRate = errorRateMapThisSlot.get(endpointId) ?? 0;
-            errorRateMapThisSlot.set(endpointId, Math.min(1, originalErrorRate + extraErrorRate));
+            const originalErrorRate = errorRateMapThisSlot.get(uniqueEndpointName) ?? 0;
+            errorRateMapThisSlot.set(uniqueEndpointName, Math.min(1, originalErrorRate + extraErrorRate));
           }
         }
 
-        basicLatencyWithFaultMapPerTimeSlot.set(timeSlotKey, latencyMapThisSlot);
+        delayWithFaultMapPerTimeSlot.set(timeSlotKey, delayMapThisSlot);
         basicErrorRateWithFaultMapPerTimeSlot.set(timeSlotKey, errorRateMapThisSlot);
       }
     }
 
     // console.log("allFaultRecords", allFaultRecords);
-    // console.log("basicLatencyMap", basicLatencyMap);
+    // console.log("basicDelayMap", basicDelayMap);
     // console.log("basicErrorRateMap", basicErrorRateMap);
-    console.log("latencyMapPerTimeSlot", basicLatencyWithFaultMapPerTimeSlot);
-    console.log("errorRateMapThisSlot", basicErrorRateWithFaultMapPerTimeSlot);
+    console.log("delayWithFaultMapPerTimeSlot", delayWithFaultMapPerTimeSlot);
+    // console.log("errorRateMapThisSlot", basicErrorRateWithFaultMapPerTimeSlot);
 
     return {
       entryEndpointRequestCountsMapByTimeSlot,
       replicaCountPerTimeSlot,
-      basicLatencyWithFaultMapPerTimeSlot,
+      delayWithFaultMapPerTimeSlot: delayWithFaultMapPerTimeSlot,
       basicErrorRateWithFaultMapPerTimeSlot,
       fallbackStrategyMap
     };
@@ -260,7 +260,7 @@ export default class LoadSimulationHandler {
   private updateRequestCountsMapByTimeSlot(
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
     day: number,
-    endpointId: string,
+    uniqueEndpointName: string,
     realRequestCountForThisDay: number,
     probabilityOfMutation: number,
   ) {
@@ -323,7 +323,7 @@ export default class LoadSimulationHandler {
           entryEndpointRequestCountsMapByTimeSlot.set(timeSlotKey, new Map());
         }
         const endpointCountMap = entryEndpointRequestCountsMapByTimeSlot.get(timeSlotKey)!;
-        endpointCountMap.set(endpointId, count);
+        endpointCountMap.set(uniqueEndpointName, count);
       }
     }
     return;
@@ -358,9 +358,9 @@ export default class LoadSimulationHandler {
       const serviceMap = serviceRequestCountsPerTimeSlot.get(timeSlotKey)!;
 
       // timeSlotStats contains statistics for all endpoints during this time slot
-      for (const [endpointId, stats] of timeSlotStats.entries()) {
+      for (const [uniqueEndpointName, stats] of timeSlotStats.entries()) {
         // Extract the service ID from the endpoint ID
-        const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(endpointId);
+        const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
 
         // Get the current aggregated count for this service, defaulting to 0 if none exists
         const prevCount = serviceMap.get(uniqueServiceName) || 0;
@@ -390,7 +390,7 @@ export default class LoadSimulationHandler {
     return Map: 
       -key:"day-hour-minute" 
       -value:
-        -key:endpointID
+        -key:uniqueEndpointName
         -value:adjustedErrorRate (includes overload effects)
     */
     // Map: uniqueServiceName => capacity per replica
@@ -405,7 +405,7 @@ export default class LoadSimulationHandler {
       }
     }
 
-    // Final result: Map<day-hour-minute, Map<endpointId, adjustedErrorRate>>
+    // Final result: Map<day-hour-minute, Map<uniqueEndpointName, adjustedErrorRate>>
     const adjustedErrorRatePerTimeSlot = new Map<string, Map<string, number>>();
 
     for (const [timeSlotKey, serviceCounts] of serviceRequestCounts.entries()) {
@@ -420,8 +420,8 @@ export default class LoadSimulationHandler {
 
       // console.log("adjustedErrorRate!")
       // console.log("serviceCapacityMap=",serviceCapacityMap)
-      for (const [endpointId, baseErrorRate] of errorRateMapThisSlot.entries()) {
-        const uniqueServiceName = endpointId.split('\t').slice(0, 3).join('\t');
+      for (const [uniqueEndpointName, baseErrorRate] of errorRateMapThisSlot.entries()) {
+        const uniqueServiceName = uniqueEndpointName.split('\t').slice(0, 3).join('\t');
 
         // Get request count for the service in this hour
         const requestCountPerMinute = serviceCounts.get(uniqueServiceName) ?? 0;
@@ -437,7 +437,7 @@ export default class LoadSimulationHandler {
           baseErrorRate
         });
 
-        adjustedMap.set(endpointId, adjustedErrorRate);
+        adjustedMap.set(uniqueEndpointName, adjustedErrorRate);
       }
 
       adjustedErrorRatePerTimeSlot.set(timeSlotKey, adjustedMap);
@@ -485,8 +485,5 @@ export default class LoadSimulationHandler {
     return Math.min(1, totalErrorRate);
   }
 
-  private getRandom(min: number, max: number) {
-    return Math.random() * (max - min) + min;
-  }
 
 }

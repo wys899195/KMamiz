@@ -173,7 +173,7 @@ export default class Simulator {
             service: svc.serviceName,
             namespace: ns.namespace,
             version: ver.version,
-            replicas: ver.replica ?? 1,
+            replicas: ver.replica,
           });
 
           for (const ep of ver.endpoints) {
@@ -182,7 +182,7 @@ export default class Simulator {
 
             const baseData: TBaseRealtimeData = {
               uniqueServiceName,
-              uniqueEndpointName: ep.endpointId,
+              uniqueEndpointName: ep.uniqueEndpointName!,
               method: methodUpperCase,
               service: svc.serviceName,
               namespace: ns.namespace,
@@ -191,7 +191,7 @@ export default class Simulator {
               requestContentType: ep.datatype?.requestContentType,
             };
 
-            baseDataMap.set(ep.endpointId, { baseData, responses: ep.datatype?.responses });
+            baseDataMap.set(ep.uniqueEndpointName!, { baseData, responses: ep.datatype?.responses });
 
             // collect endpoint sample data (fake realtime data)
             const endpointSampleData = this.generateSampleRealtimeDataForEndpoint(
@@ -241,12 +241,12 @@ export default class Simulator {
       allFaultRecords:
         -key:"day-hour-minute" 
         -value:
-          -key:endpointID
+          -key:uniqueEndpointName
           -value:Fault object
     */
     const allFaultRecords = new Map<string, Map<string, Fault>>();
 
-    const simulationDurationInDays = loadSimulationSettings.config?.simulationDurationInDays ?? 1;
+    const simulationDurationInDays = loadSimulationSettings.config.simulationDurationInDays;
 
     for (let day = 0; day < simulationDurationInDays; day++) {
       for (let hour = 0; hour < 24; hour++) {
@@ -268,14 +268,14 @@ export default class Simulator {
     }
 
     //TODO:歷每個fault 將對應時段的故障注入到allFaultRecords
-    const allEndpointsByService = new Map<string, string[]>(); // key: `${namespace}:${serviceName}:${version}` → endpointId[]
+    const allEndpointsByService = new Map<string, string[]>(); // key: `${namespace}:${serviceName}:${version}` → uniqueEndpointName[]
 
     // 建立 service → endpoints 快取
     servicesInfo.forEach(ns => {
       ns.services.forEach(svc => {
         svc.versions.forEach(ver => {
           const key = `${ns.namespace}:${svc.serviceName}:${ver.version}`;
-          allEndpointsByService.set(key, ver.endpoints.map(e => e.endpointId));
+          allEndpointsByService.set(key, ver.endpoints.map(e => e.uniqueEndpointName!));
         });
       });
     });
@@ -289,7 +289,7 @@ export default class Simulator {
         const latency = isLatency ? fault.increaseLatencyMs ?? 0 : 0;
         const errorRate = isErrorRate ? fault.increaseErrorRatePercent ?? 0 : 0;
 
-        const affectedEndpointIds = new Set<string>();
+        const affecteduniqueEndpointNames = new Set<string>();
 
         // 處理 targets.services
         fault.targets?.services?.forEach(service => {
@@ -302,14 +302,14 @@ export default class Simulator {
             const key = `${ns}:${svc}:${ver}`;
             const endpointList = allEndpointsByService.get(key);
             if (endpointList) {
-              endpointList.forEach(eid => affectedEndpointIds.add(eid));
+              endpointList.forEach(eid => affecteduniqueEndpointNames.add(eid));
             }
           } else {
             // version 沒指定：抓所有版本
             for (const [key, eids] of allEndpointsByService.entries()) {
               const [kNs, kSvc, _] = key.split(':');
               if (kNs === ns && kSvc === svc) {
-                eids.forEach(eid => affectedEndpointIds.add(eid));
+                eids.forEach(eid => affecteduniqueEndpointNames.add(eid));
               }
             }
           }
@@ -317,7 +317,7 @@ export default class Simulator {
 
         // 處理 targets.endpoints
         fault.targets?.endpoints?.forEach(ep => {
-          affectedEndpointIds.add(ep.endpointId);
+          affecteduniqueEndpointNames.add(ep.uniqueEndpointName!);
         });
 
         // 注入到每個時段
@@ -329,11 +329,11 @@ export default class Simulator {
           const timeSlotMap = allFaultRecords.get(timeSlotKey);
           if (!timeSlotMap) continue;
 
-          affectedEndpointIds.forEach(endpointId => {
-            let faultObj = timeSlotMap.get(endpointId);
+          affecteduniqueEndpointNames.forEach(uniqueEndpointName => {
+            let faultObj = timeSlotMap.get(uniqueEndpointName);
             if (!faultObj) {
               faultObj = new Fault();
-              timeSlotMap.set(endpointId, faultObj);
+              timeSlotMap.set(uniqueEndpointName, faultObj);
             }
             if (isLatency) {
               faultObj.setIncreaseLatency(latency);
@@ -364,7 +364,7 @@ export default class Simulator {
 
 
         fault.targets?.services?.forEach(service => {
-          const ns = service.namespace ?? '';
+          const ns = service.namespace;
           const svc = service.serviceName;
           const ver = service.version;
 
@@ -382,7 +382,7 @@ export default class Simulator {
             timeSlotKeys.push(timeSlotKey);
           }
 
-          
+
 
           const affectedServiceVersionKeys = new Set<string>();
           fault.targets?.services?.forEach(service => {
