@@ -4,12 +4,13 @@ import {
   TLoadSimulationSettings,
   TLoadSimulationConfig,
   TFallbackStrategy,
-  TSimulationEndpointDelay
+  TSimulationEndpointDelay,
 } from "../../entities/TSimulationConfig";
 import {
   TBaseDataWithResponses,
   TEndpointPropagationStatsForOneTimeSlot,
-  Fault,
+  EndpointFault,
+  ServiceFault,
 } from "../../entities/TLoadSimulation";
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
@@ -37,18 +38,18 @@ export default class LoadSimulationHandler {
     dependOnMap: Map<string, Set<string>>,
     basicReplicaCountList: TReplicaCount[],
     EndpointRealTimeBaseDatas: Map<string, TBaseDataWithResponses>,
-    allFaultRecords: Map<string, Map<string, Fault>>, // todo 串街getTrafficMap與simulatePropagation
     simulateDate: number
   ): Map<string, TCombinedRealtimeData[]> {
     const serviceMetrics: TSimulationNamespaceServiceMetrics[] = loadSimulationSettings.serviceMetrics;
     const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
+    const allFaultRecord = this.generateAllFaultRecords(loadSimulationSettings);
     const {
       entryEndpointRequestCountsMapByTimeSlot,
       replicaCountPerTimeSlot,
       delayWithFaultMapPerTimeSlot,
       basicErrorRateWithFaultMapPerTimeSlot,
       fallbackStrategyMap
-    } = this.getTrafficMap(basicReplicaCountList, endpointMetrics, allFaultRecords, loadSimulationSettings.config);
+    } = this.getTrafficMap(basicReplicaCountList, endpointMetrics, allFaultRecord, loadSimulationSettings.config);
 
 
     // Use the basic error rate to simulate traffic propagation and calculate the 
@@ -122,7 +123,10 @@ export default class LoadSimulationHandler {
   private getTrafficMap(
     basicReplicaCountList: TReplicaCount[],
     endpointMetrics: TSimulationEndpointMetric[],
-    allFaultRecords: Map<string, Map<string, Fault>>,
+    allFaultRecord: {
+      allEndpointFaultRecords: Map<string, Map<string, EndpointFault>>,
+      allServiceFaultRecords: Map<string, Map<string, ServiceFault>>
+    },
     loadSimulationConfig: TLoadSimulationConfig,
   ): {
     entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>; //key: day-hour-minute, value: Map where Key is uniqueEndpointName and Value is request count
@@ -154,22 +158,12 @@ export default class LoadSimulationHandler {
     const simulationDurationInDays = loadSimulationConfig.simulationDurationInDays;
     const probabilityOfMutation = loadSimulationConfig.mutationRatePercentage / 100;
 
-    // Currently uses 24 intervals per day (i.e., 1-hour intervals)
-    for (let day = 0; day < simulationDurationInDays; day++) {
-      for (let hour = 0; hour < 24; hour++) {
-        const timeSlotKey = `${day}-${hour}-0`;
-        const replicaCountMapInThisTimeslot = new Map<string, number>(
-          basicReplicaCountList.map(item => [item.uniqueServiceName, item.replicas])
-        )
-        replicaCountPerTimeSlot.set(timeSlotKey, replicaCountMapInThisTimeslot)
-      }
-    }
-    // console.log("endpointMetricsccc", endpointMetrics);
+
+    // Construct entryEndpointRequestCountsMapByTimeSlot from endpointMetrics
     for (const metric of endpointMetrics) {
       const uniqueEndpointName = metric.uniqueEndpointName!;
 
       // basicDelayMap
-      // console.log("metricccc", metric)
       basicDelayMap.set(uniqueEndpointName, {
         latencyMs: metric.delay.latencyMs,
         jitterMs: metric.delay.jitterMs
@@ -203,30 +197,36 @@ export default class LoadSimulationHandler {
       }
     }
 
-    console.log("basicDelayMap", basicDelayMap);
-    console.log("basicErrorRateMap", basicErrorRateMap);
+    // TODO:Construct replicaCountPerTimeSlot from basicReplicaCountList + fault injection
+    for (let day = 0; day < simulationDurationInDays; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const timeSlotKey = `${day}-${hour}-0`;
+        const replicaCountMapInThisTimeslot = new Map<string, number>(
+          basicReplicaCountList.map(item => [item.uniqueServiceName, item.replicas])
+        )
+        replicaCountPerTimeSlot.set(timeSlotKey, replicaCountMapInThisTimeslot)
+      }
+    }
 
     // Construct delayWithFaultMapPerTimeSlot and errorRateMapPerTimeSlot from basic map + fault injection
     for (let day = 0; day < simulationDurationInDays; day++) {
       for (let hour = 0; hour < 24; hour++) {
         const timeSlotKey = `${day}-${hour}-0`;
-
-
         // Start with the basic values
         const delayMapThisSlot = new Map(basicDelayMap);
         const errorRateMapThisSlot = new Map(basicErrorRateMap);
 
         // Inject fault-based adjustments
-        const faultsForThisTimeSlot = allFaultRecords.get(timeSlotKey);
+        const faultsForThisTimeSlot = allFaultRecord.allEndpointFaultRecords.get(timeSlotKey);
         if (faultsForThisTimeSlot) {
           for (const [uniqueEndpointName, fault] of faultsForThisTimeSlot.entries()) {
             // Latency injection
             const originalDelay = delayMapThisSlot.get(uniqueEndpointName);
-            if (originalDelay){
-            delayMapThisSlot.set(uniqueEndpointName, {
-              latencyMs: originalDelay.latencyMs + fault.getIncreaseLatency(),
-              jitterMs: originalDelay.jitterMs,
-            });
+            if (originalDelay) {
+              delayMapThisSlot.set(uniqueEndpointName, {
+                latencyMs: originalDelay.latencyMs + fault.getIncreaseLatency(),
+                jitterMs: originalDelay.jitterMs,
+              });
             }
 
             // Error rate injection
@@ -244,7 +244,7 @@ export default class LoadSimulationHandler {
     // console.log("allFaultRecords", allFaultRecords);
     // console.log("basicDelayMap", basicDelayMap);
     // console.log("basicErrorRateMap", basicErrorRateMap);
-    console.log("delayWithFaultMapPerTimeSlot", delayWithFaultMapPerTimeSlot);
+    // console.log("delayWithFaultMapPerTimeSlot", delayWithFaultMapPerTimeSlot);
     // console.log("errorRateMapThisSlot", basicErrorRateWithFaultMapPerTimeSlot);
 
     return {
@@ -485,5 +485,103 @@ export default class LoadSimulationHandler {
     return Math.min(1, totalErrorRate);
   }
 
+  private generateAllFaultRecords(
+    loadSimulationSettings: TLoadSimulationSettings,
+    // basicReplicaCountList: TReplicaCount[]
+  ): {
+    allEndpointFaultRecords: Map<string, Map<string, EndpointFault>>,
+    allServiceFaultRecords: Map<string, Map<string, ServiceFault>>
+  } {
+    /*
+      allEndpointFaultRecords:
+        -key:"day-hour-minute" 
+        -value:
+          -key:uniqueEndpointName
+          -value:EndpointFault object
+
+      allServiceFaultRecords:
+        -key:"day-hour-minute" 
+        -value:
+          -key:uniqueServiceName
+          -value:ServiceFault object
+    */
+    const allEndpointFaultRecords = new Map<string, Map<string, EndpointFault>>();
+    const allServiceFaultRecords = new Map<string, Map<string, ServiceFault>>();
+
+    if (!loadSimulationSettings.faults) return {
+      allEndpointFaultRecords,
+      allServiceFaultRecords
+    }
+
+    const simulationDurationInDays = loadSimulationSettings.config.simulationDurationInDays;
+
+    for (let day = 0; day < simulationDurationInDays; day++) {
+      for (let hour = 0; hour < 24; hour++) {
+        const timeSlotKey = `${day}-${hour}-0`;
+        allEndpointFaultRecords.set(timeSlotKey, new Map<string, EndpointFault>());
+        allServiceFaultRecords.set(timeSlotKey, new Map<string, ServiceFault>());
+      }
+    }
+
+    loadSimulationSettings.faults.forEach(fault => {
+      const isLatency = fault.type === 'increase-latency';
+      const isErrorRate = fault.type === 'increase-error-rate';
+      const isReduceInstance = fault.type === 'reduce-instance';
+      if (isLatency || isErrorRate) {
+        // EndpointFault
+        const latency = isLatency ? fault.increaseLatencyMs : 0;
+        const errorRate = isErrorRate ? fault.increaseErrorRatePercent : 0;
+
+
+        // 將故障注入到每個時段
+        for (let h = 0; h < fault.time.durationHours; h++) {
+          const currentHour = fault.time.startHour + h;
+          const actualDay = fault.time.day + Math.floor(currentHour / 24) - 1;
+          const actualHour = currentHour % 24;
+          const timeSlotKey = `${actualDay}-${actualHour}-0`;
+          const timeSlotMap = allEndpointFaultRecords.get(timeSlotKey);
+          if (!timeSlotMap) continue;
+          fault.targets.endpoints.forEach(ep => {
+            const uniqueEndpointName = ep.uniqueEndpointName!
+            let faultObj = timeSlotMap.get(uniqueEndpointName);
+            if (!faultObj) {
+              faultObj = new EndpointFault();
+              timeSlotMap.set(uniqueEndpointName, faultObj);
+            }
+            faultObj.setIncreaseLatency(latency);
+            faultObj.setIncreaseErrorRatePercent(errorRate);
+          });
+
+        }
+      } else if (isReduceInstance) {
+        // ServiceFault
+        const reducedReplicaCount = fault.reduceCount;
+        // 將故障注入到每個時段
+        for (let h = 0; h < fault.time.durationHours; h++) {
+          const currentHour = fault.time.startHour + h;
+          const actualDay = fault.time.day + Math.floor(currentHour / 24) - 1;
+          const actualHour = currentHour % 24;
+          const timeSlotKey = `${actualDay}-${actualHour}-0`;
+          const timeSlotMap = allServiceFaultRecords.get(timeSlotKey);
+          if (!timeSlotMap) continue;
+          fault.targets.services.forEach(svc => {
+            const uniqueServiceName = svc.uniqueServiceName!;
+            let faultObj = timeSlotMap.get(uniqueServiceName);
+            if (!faultObj) {
+              faultObj = new ServiceFault();
+              timeSlotMap.set(uniqueServiceName, faultObj);
+            }
+            faultObj.setReducedReplicaCount(reducedReplicaCount);
+          });
+
+        }
+      }
+    })
+
+    return {
+      allEndpointFaultRecords,
+      allServiceFaultRecords
+    }
+  }
 
 }

@@ -3,35 +3,47 @@ import {
   TLoadSimulationSettings,
   TSimulationEndpointMetric,
   TFallbackStrategy,
+  TServiceInfoDefinitionContext,
+  TSimulationFaults,
 } from "../../../entities/TSimulationConfig";
+import SimulatorUtils from "../SimulatorUtils";
 
 export default class SimConfigLoadSimulationPreprocessor {
 
   preprocess(
     loadSimulationSettings: TLoadSimulationSettings,
-    endpointIdToUniqueNameMap: Map<string, string>, // key: endpointId, value: UniqueEndpointName
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext
   ): TSimulationConfigErrors[] {
-    const assignUniqueEndpointNameErrors = this.assignUniqueEndpointName(loadSimulationSettings, endpointIdToUniqueNameMap);
-    if (assignUniqueEndpointNameErrors.length) return assignUniqueEndpointNameErrors;
+
+    // preprocess endpointMetric
+    const preprocessEndpointMetricsErrors = this.preprocessEndpointMetrics(
+      loadSimulationSettings,
+      serviceInfoDefinitionContext,
+    )
+    if (preprocessEndpointMetricsErrors.length) return preprocessEndpointMetricsErrors;
     
-    this.addDefaultMetricsForMissingEndpointsInPlace(loadSimulationSettings,endpointIdToUniqueNameMap);
+    this.addDefaultMetricsForMissingEndpointsInPlace(loadSimulationSettings, serviceInfoDefinitionContext);
+
+    // preprocess faults
+    if (loadSimulationSettings.faults) {
+      this.preprocessFaultTargets(loadSimulationSettings.faults, serviceInfoDefinitionContext);
+    }
 
     // If no errors found, return an empty array.
     return [];
   }
 
-  // Assign uniqueEndpointName to each endpoint for later use
-  private assignUniqueEndpointName(
-    loadSimulationSettings: TLoadSimulationSettings,
-    endpointIdToUniqueNameMap: Map<string, string>,
-  ): TSimulationConfigErrors[] {
-    // If the previous validations were correctly implemented, this error should not occur
-    // this is here only as a safeguard.
-    const errorMessages: TSimulationConfigErrors[] = [];
 
-    // endpointMetric
+  // Assign uniqueEndpointName to each endpointMetric
+  private preprocessEndpointMetrics(
+    loadSimulationSettings: TLoadSimulationSettings,
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
+  ): TSimulationConfigErrors[] {
+    // errorMessages is here only as a safeguard.
+    // If the previous validations were correctly implemented, this error should not occur
+    const errorMessages: TSimulationConfigErrors[] = [];
     loadSimulationSettings.endpointMetrics.forEach((epMetric, index) => {
-      epMetric.uniqueEndpointName = endpointIdToUniqueNameMap.get(epMetric.endpointId);
+      epMetric.uniqueEndpointName = serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(epMetric.endpointId);
       if (!epMetric.uniqueEndpointName) {
         const errorLocation = `loadSimulation.endpointMetrics[${index}].endpointId`;
         errorMessages.push({
@@ -40,39 +52,111 @@ export default class SimConfigLoadSimulationPreprocessor {
         });
       }
     });
-
-    // faults TODO
-    loadSimulationSettings.faults?.forEach((fault, faultIndex) => {
-      if (fault.type != "reduce-instance") {
-        if (fault.targets?.endpoints) {
-          fault.targets.endpoints.forEach((ep, epIndex) => {
-            const originalId = ep.uniqueEndpointName!;
-            const mappedId = endpointIdToUniqueNameMap.get(originalId);
-            const errorLocation = `faults[${faultIndex}].targets.endpoints[${epIndex}].endpointId`;
-
-            if (mappedId) {
-              ep.uniqueEndpointName! = mappedId;
-            } else {
-              errorMessages.push({
-                errorLocation,
-                message: `Cannot map endpointId "${originalId}" in faults.`,
-              });
-            }
-          });
-        }
-      }
-
-    });
-
     return errorMessages;
   }
+
+  private preprocessFaultTargets(
+    faultSettings: TSimulationFaults[],
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
+  ) {
+    this.expandFaultTargetServicesWithNoVersionSpecified(
+      faultSettings,
+      serviceInfoDefinitionContext
+    )
+    this.convertFaultTargetServicesToEndpoints(
+      faultSettings,
+      serviceInfoDefinitionContext
+    );
+  }
+
+
+  // Expand fault target services that have no version specified into all available versions,
+  // and assign uniqueServiceName to each expanded service target.
+  private expandFaultTargetServicesWithNoVersionSpecified(
+    faultSettings: TSimulationFaults[],
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
+  ) {
+    faultSettings.forEach((fault) => {
+      const allUniqueServiceNameSet = new Set<string>();
+      fault.targets.services.forEach((targetService) => {
+        if (targetService.version) {
+          //version is specified
+          const uniqueServiceName = SimulatorUtils.generateUniqueServiceName(
+            targetService.serviceName,
+            targetService.namespace,
+            targetService.version
+          )
+          allUniqueServiceNameSet.add(uniqueServiceName);
+        } else {
+          // If version is not specified, get all versions of the service
+          const uniqueServiceNameWithoutVersion = SimulatorUtils.generateUniqueServiceNameWithoutVersion(
+            targetService.serviceName,
+            targetService.namespace
+          );
+          Array.from(serviceInfoDefinitionContext.allDefinedUniqueServiceNames)
+            .filter(name => name.startsWith(uniqueServiceNameWithoutVersion))
+            .forEach(name => allUniqueServiceNameSet.add(name));
+        }
+      })
+
+      // Replace the original services with expanded list including versions and uniqueServiceName
+      fault.targets.services = Array.from(allUniqueServiceNameSet).map((uniqueServiceName) => {
+        const [serviceName, namespace, serviceVersion] = SimulatorUtils.splitUniqueServiceName(uniqueServiceName);
+        return {
+          namespace: namespace,
+          serviceName: serviceName,
+          version: serviceVersion,
+          uniqueServiceName: uniqueServiceName // Also assign uniqueServiceName here
+        }
+      })
+    })
+  }
+
+  // Convert fault target services to all endpoints under those services
+  // (Only processes faults that can specify target endpoints)
+  private convertFaultTargetServicesToEndpoints(
+    faultSettings: TSimulationFaults[],
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
+  ): void {
+    faultSettings.forEach((fault) => {
+      // Convert the services specified in the fault's targets into a set of all corresponding endpointIds
+      if (fault.type == 'increase-error-rate' || fault.type == 'increase-latency') {// faults that can specify target endpoints
+        // Collect all endpointIds related to the services specified in this fault's targets
+        const allEndpointIdSetForThisFault = new Set<string>();
+        fault.targets.services.forEach((targetService) => {
+          // Use uniqueServiceName to find corresponding endpointIds
+          serviceInfoDefinitionContext.uniqueServiceNameToEndpointIdMap.get(targetService.uniqueServiceName!)?.forEach(endpointId =>
+            allEndpointIdSetForThisFault.add(endpointId)
+          );
+        })
+
+        // Add endpointIds explicitly specified in targets.endpoints 
+        // (meaning if the admin specifies a service, no need to specify its endpoints separately)
+        fault.targets.endpoints.forEach((targetEndpoint) => {
+          allEndpointIdSetForThisFault.add(targetEndpoint.endpointId);
+        })
+
+        // Clear targets.services and unify the targets to all corresponding endpoints
+        fault.targets.services = []
+
+        // Replace targets.endpoints with all the collected endpoint objects
+        fault.targets.endpoints = Array.from(allEndpointIdSetForThisFault).map((endpointId) => {
+          return {
+            endpointId: endpointId,
+            uniqueEndpointName: serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(endpointId)!
+          }
+        })
+      }
+    });
+  }
+
 
   // Avoid missing base error rates for endpoints when adjusting error rates during load simulation
   private addDefaultMetricsForMissingEndpointsInPlace(
     loadSimulationSettings: TLoadSimulationSettings,
-    endpointIdToUniqueNameMap: Map<string, string>
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
   ) {
-    const allDefinedEndpointIds = new Set(endpointIdToUniqueNameMap.keys());
+    const allDefinedEndpointIds = new Set(serviceInfoDefinitionContext.endpointIdToUniqueNameMap.keys());
     const endpointMetrics: TSimulationEndpointMetric[] = loadSimulationSettings.endpointMetrics;
     const existingMetricEndpointIds = new Set(endpointMetrics.map(m => m.endpointId));
     const missingEndpointIds = Array.from(allDefinedEndpointIds).filter(id => !existingMetricEndpointIds.has(id));
@@ -82,9 +166,12 @@ export default class SimConfigLoadSimulationPreprocessor {
       expectedExternalDailyRequestCount: 0,
       errorRatePercent: 0,
       fallbackStrategy: "failIfAnyDependentFail" as TFallbackStrategy,
-      uniqueEndpointName: endpointIdToUniqueNameMap.get(id)!,
+      uniqueEndpointName: serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(id)!,
     }));
     loadSimulationSettings.endpointMetrics = [...endpointMetrics, ...defaultMetrics];
 
   }
+
+
+
 }

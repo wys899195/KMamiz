@@ -2,14 +2,18 @@ import {
 
   TSimulationConfigErrors,
   TSimulationEndpointDependency,
+  TServiceInfoDefinitionContext,
 } from "../../../entities/TSimulationConfig";
 
 export default class SimConfigEndpointDependenciesPreprocessor {
   preprocess(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
-    endpointIdToUniqueNameMap: Map<string, string>, // key: endpointId, value: UniqueEndpointName
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
   ): TSimulationConfigErrors[] {
-    const assignUniqueEndpointNameErrors = this.assignUniqueEndpointName(endpointDependenciesConfig, endpointIdToUniqueNameMap);
+    const assignUniqueEndpointNameErrors = this.assignUniqueEndpointName(
+      endpointDependenciesConfig,
+      serviceInfoDefinitionContext
+    );
     if (assignUniqueEndpointNameErrors.length) return assignUniqueEndpointNameErrors;
 
     // If no errors found, return an empty array.
@@ -19,14 +23,15 @@ export default class SimConfigEndpointDependenciesPreprocessor {
   // Assign uniqueEndpointName to each endpoint for later use
   private assignUniqueEndpointName(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
-    endpointIdToUniqueNameMap: Map<string, string>,
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
   ): TSimulationConfigErrors[] {
+    // errorMessages is here only as a safeguard.
     // If the previous validations were correctly implemented, this error should not occur
-    // this is here only as a safeguard.
     const errorMessages: TSimulationConfigErrors[] = [];
 
     endpointDependenciesConfig.forEach((source, sourceIndex) => {
-      source.uniqueEndpointName = endpointIdToUniqueNameMap.get(source.endpointId)!;
+      source.uniqueEndpointName =
+        serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(source.endpointId);
       if (!source.uniqueEndpointName) {
         const sourceLocation = `endpointDependencies[${sourceIndex}].endpointId`;
         errorMessages.push({
@@ -35,7 +40,8 @@ export default class SimConfigEndpointDependenciesPreprocessor {
         });
       }
       source.dependOn.forEach((target, targetIndex) => {
-        target.uniqueEndpointName = endpointIdToUniqueNameMap.get(target.endpointId)!;
+        target.uniqueEndpointName =
+          serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(target.endpointId);
         if (!target.uniqueEndpointName) {
           const targetLocation = `endpointDependencies[${sourceIndex}].dependOn[${targetIndex}].endpointId`;
           errorMessages.push({

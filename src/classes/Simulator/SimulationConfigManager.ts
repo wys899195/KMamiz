@@ -4,6 +4,7 @@ import {
   simulationConfigYAMLSchema,
   TSimulationConfigErrors,
   TSimulationNamespace,
+  TServiceInfoDefinitionContext,
 } from "../../entities/TSimulationConfig";
 import SimConfigGenerator from "./SimConfigGenerator";
 import yaml from "js-yaml";
@@ -15,7 +16,6 @@ import SimConfigLoadSimulationValidator from "./SimConfigValidator/SimConfigLoad
 import SimConfigServicesInfoPreprocessor from "./SimConfigPreprocessor/SimConfigServicesInfoPreprocessor";
 import SimConfigEndpointDependenciesPreprocessor from "./SimConfigPreprocessor/SimConfigEndpointDependenciesPreprocessor";
 import SimConfigLoadSimulationPreprocessor from "./SimConfigPreprocessor/SimConfigLoadSimulationPreprocessor";
-
 
 export default class SimulationConfigManager {
   private static instance?: SimulationConfigManager;
@@ -89,7 +89,7 @@ export default class SimulationConfigManager {
         };
       };
       // console.log("parsedConfig = ",JSON.stringify(parsedConfig,null,2))
-      // console.log("parsedConfig = ",yaml.dump(parsedConfigAfterZod))
+      console.log("parsedConfig = ", yaml.dump(parsedConfigAfterZod))
       // success
       return {
         errorMessage: "",
@@ -115,19 +115,38 @@ export default class SimulationConfigManager {
     // Provide the service and endpoint information defined in servicesInfo for validating endpointDependencies and loadSimulation. 
     const endpointIdToUniqueNameMap = this.getEndpointIdToUniqueNameMap(parsedConfig.servicesInfo);
     const allDefinedEndpointIds = new Set(endpointIdToUniqueNameMap.keys());
-    const allAssignedUniqueServiceNames = this.getAllAssignedUniqueServiceNameSet(parsedConfig.servicesInfo);
+    const uniqueServiceNameToEndpointIdMap = this.getUniqueServiceNameToEndpointIdMap(parsedConfig.servicesInfo);
+    const allDefinedUniqueServiceNames = new Set(uniqueServiceNameToEndpointIdMap.keys());
+    const serviceInfoDefinitionContext: TServiceInfoDefinitionContext = {
+      endpointIdToUniqueNameMap: endpointIdToUniqueNameMap,
+      allDefinedEndpointIds: allDefinedEndpointIds,
+      uniqueServiceNameToEndpointIdMap: uniqueServiceNameToEndpointIdMap,
+      allDefinedUniqueServiceNames: allDefinedUniqueServiceNames,
+    }
 
     // validate and preprocess endpointDependencies
-    errorMessages = this.endpointDependenciesValidator.validate(parsedConfig.endpointDependencies, allDefinedEndpointIds);
+    errorMessages = this.endpointDependenciesValidator.validate(
+      parsedConfig.endpointDependencies,
+      serviceInfoDefinitionContext
+    );
     if (errorMessages.length) return errorMessages;
-    errorMessages = this.endpointDependenciesPreprocessor.preprocess(parsedConfig.endpointDependencies, endpointIdToUniqueNameMap)
+    errorMessages = this.endpointDependenciesPreprocessor.preprocess(
+      parsedConfig.endpointDependencies,
+      serviceInfoDefinitionContext
+    )
     if (errorMessages.length) return errorMessages;
 
     // validate and preprocess loadSimulation
     if (parsedConfig.loadSimulation) {
-      errorMessages = this.loadSimulationValidator.validate(parsedConfig.loadSimulation, allAssignedUniqueServiceNames, allDefinedEndpointIds);
+      errorMessages = this.loadSimulationValidator.validate(
+        parsedConfig.loadSimulation,
+        serviceInfoDefinitionContext
+      );
       if (errorMessages.length) return errorMessages;
-      errorMessages = this.loadSimulationPreprocessor.preprocess(parsedConfig.loadSimulation, endpointIdToUniqueNameMap);
+      errorMessages = this.loadSimulationPreprocessor.preprocess(
+        parsedConfig.loadSimulation, 
+        serviceInfoDefinitionContext
+      );
       if (errorMessages.length) return errorMessages;
     }
     // If no errors found, return an empty array.
@@ -151,16 +170,22 @@ export default class SimulationConfigManager {
     );
     return endpointIdUniqueNameMap;
   }
-  private getAllAssignedUniqueServiceNameSet(servicesInfoConfig: TSimulationNamespace[]) {
-    const definedUniqueServiceName = new Set<string>();
+
+  private getUniqueServiceNameToEndpointIdMap(
+    servicesInfoConfig: TSimulationNamespace[]
+  ): Map<string, Set<string>> {
+    //return type: Map where key: uniqueServiceName → Set(EndpointId)
+    const uniqueServiceNameToEndpointIdMap = new Map<string, Set<string>>();
     servicesInfoConfig.forEach(ns => {
       ns.services.forEach(svc => {
         svc.versions.forEach(ver => {
-          definedUniqueServiceName.add(ver.uniqueServiceName!);
+          const uniqueServiceName = ver.uniqueServiceName!;
+          const endpointIds = ver.endpoints.map(e => e.endpointId);
+          uniqueServiceNameToEndpointIdMap.set(uniqueServiceName, new Set(endpointIds));
         });
       });
     });
-    return definedUniqueServiceName;
+    return uniqueServiceNameToEndpointIdMap;
   }
 
   generateStaticSimConfig(): string {

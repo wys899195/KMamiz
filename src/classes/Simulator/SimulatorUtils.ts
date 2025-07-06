@@ -1,12 +1,22 @@
 export default class SimulatorUtils {
 
 
+
   static generateUniqueServiceName(serviceName: string, namespace: string, serviceVersion: string) {
     const trimmedServiceName = serviceName.trim();
     const trimmedNamespace = namespace.trim();
     const trimmedServiceVersion = serviceVersion.trim();
-
     return `${trimmedServiceName}\t${trimmedNamespace}\t${trimmedServiceVersion}`;
+  }
+  static generateUniqueServiceNameWithoutVersion(serviceName: string, namespace: string) {
+    const trimmedServiceName = serviceName.trim();
+    const trimmedNamespace = namespace.trim();
+    return `${trimmedServiceName}\t${trimmedNamespace}`;
+  }
+
+  static splitUniqueServiceName(uniqueServiceName: string): [string, string, string] {
+    const [serviceName, namespace, serviceVersion] = uniqueServiceName.split('\t');
+    return [serviceName.trim(), namespace.trim(), serviceVersion.trim()];
   }
 
   static generateUniqueEndpointName(serviceName: string, namespace: string, serviceVersion: string, methodUpperCase: string, path: string) {

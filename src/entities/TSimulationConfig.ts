@@ -180,10 +180,11 @@ const faultTimeSchema = z.object({
 });
 
 const faultTargetServiceSchema = z.object({
+  uniqueServiceName: z.string().optional(),// Users do not need to provide this.
   serviceName: z.string().min(1, { message: "serviceName cannot be empty." }),
   namespace: z.string().min(1, { message: "namespace cannot be empty." }),
   version: versionSchema.optional(),  // If not specified, applies to all versions of the service
-}).strict();
+}).strict().refine(uniqueServiceNameNotProvided, uniqueServiceNameRefineOptions);
 
 const faultTargetEndpointSchema = z.object({
   uniqueEndpointName: z.string().optional(),// Users do not need to provide this.
@@ -225,20 +226,18 @@ const reduceInstanceFaultSchema = z.object({
   reduceCount: z.number().int().min(1),
 }).strict();
 
-export const faultsSchema = z.array(
-  z.discriminatedUnion("type", [
-    increaseLatencyFaultSchema,
-    increaseErrorRateFaultSchema,
-    reduceInstanceFaultSchema,
-  ])
-);
+export const faultSchema = z.discriminatedUnion("type", [
+  increaseLatencyFaultSchema,
+  increaseErrorRateFaultSchema,
+  reduceInstanceFaultSchema,
+]);
 
 
 export const loadSimulationSchema = z.object({
   config: loadSimulationConfigSchema,
   serviceMetrics: z.array(simulationNamespaceServiceMetricsSchema),
   endpointMetrics: z.array(simulationEndpointMetricSchema),
-  faults: faultsSchema.optional(),
+  faults: z.array(faultSchema).optional(),
 }).strict();
 
 export const simulationConfigYAMLSchema = z.object({
@@ -268,7 +267,8 @@ export type TSimulationServiceMetric = z.infer<typeof simulationServiceMetricSch
 export type TSimulationNamespaceServiceMetrics = z.infer<typeof simulationNamespaceServiceMetricsSchema>;
 export type TSimulationEndpointDelay = z.infer<typeof endpointDelaySchema>;
 export type TSimulationEndpointMetric = z.infer<typeof simulationEndpointMetricSchema>;
-export type TSimulationFaults = z.infer<typeof faultsSchema>;
+export type TSimulationFaultTargetEndpoint = z.infer<typeof faultTargetEndpointSchema>;
+export type TSimulationFaults = z.infer<typeof faultSchema>;
 export type TLoadSimulationSettings = z.infer<typeof loadSimulationSchema>;
 
 
@@ -289,3 +289,10 @@ export type TSimulationConfigProcessResult = {
 export type BodyInputType = "sample" | "typeDefinition" | "empty" | "unknown";
 
 export type TFallbackStrategy = typeof fallbackStrategies[number];
+
+export type TServiceInfoDefinitionContext = {
+  uniqueServiceNameToEndpointIdMap: Map<string, Set<string>>;// key: UniqueServiceName, value: Set of endpointId (all endpointId under the service)
+  allDefinedUniqueServiceNames: Set<string>;// UniqueServiceName Set
+  endpointIdToUniqueNameMap: Map<string, string>;// key: endpointId, value: UniqueEndpointName
+  allDefinedEndpointIds: Set<string>;// endpointId Set
+};

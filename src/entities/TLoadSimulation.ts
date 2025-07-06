@@ -23,24 +23,24 @@ export type TEndpointPropagationStatsForOneTimeSlot = {
 
 };
 
-/* Fault Injection */
-export class Fault {
+/* Endpoint Fault Injection */
+export class EndpointFault {
   private _increaseLatency: number;
   private _increaseErrorRatePercent: number;
 
   constructor(
-    latency: number = 0,
-    errorRate: number = 0
+    increaseLatency: number = 0,
+    increaseErrorRatePercent: number = 0
   ) {
-    this._increaseLatency = Math.max(0, latency);
-    this._increaseErrorRatePercent = Math.min(Math.max(0, errorRate), 100);
+    this._increaseLatency = Math.max(0, increaseLatency);
+    this._increaseErrorRatePercent = Math.min(Math.max(0, increaseErrorRatePercent), 100);
   }
 
-  setIncreaseLatency(nextIncreaseLatency: number) {
-    this._increaseLatency = Math.max(0, nextIncreaseLatency);
+  setIncreaseLatency(next: number) {
+    this._increaseLatency = Math.max(0, next);
   }
-  setIncreaseErrorRatePercent(nextErrorRate: number) {
-    this._increaseErrorRatePercent = Math.min(Math.max(0, nextErrorRate), 100);
+  setIncreaseErrorRatePercent(next: number) {
+    this._increaseErrorRatePercent = Math.min(Math.max(0, next), 100);
   }
 
   getIncreaseLatency() {
@@ -49,4 +49,24 @@ export class Fault {
   getIncreaseErrorRatePercent() {
     return this._increaseErrorRatePercent;
   }
+}
+
+/* Service Fault Injection */
+export class ServiceFault {
+  private _reducedReplicaCount: number;
+
+  constructor(
+    reducedReplicaCount: number = 0,
+  ) {
+    this._reducedReplicaCount = Math.max(0, reducedReplicaCount);
+  }
+
+  setReducedReplicaCount(next: number) {
+    this._reducedReplicaCount = Math.max(0, next);
+  }
+
+  getReducedReplicaCount() {
+    return this._reducedReplicaCount;
+  }
+
 }

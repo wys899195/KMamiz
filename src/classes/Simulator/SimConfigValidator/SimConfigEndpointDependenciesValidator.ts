@@ -2,14 +2,15 @@ import {
 
   TSimulationConfigErrors,
   TSimulationEndpointDependency,
+  TServiceInfoDefinitionContext,
 } from "../../../entities/TSimulationConfig";
 
 export default class SimConfigEndpointDependenciesValidator {
   validate(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
-    allDefinedEndpointIds: Set<string>, // key: endpointId, value: UniqueEndpointName
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext
   ): TSimulationConfigErrors[] {
-    const undefinedEndpointIdsErrors = this.checkUndefinedEndpointIds(endpointDependenciesConfig, allDefinedEndpointIds);
+    const undefinedEndpointIdsErrors = this.checkUndefinedEndpointIds(endpointDependenciesConfig, serviceInfoDefinitionContext);
     if (undefinedEndpointIdsErrors.length) return undefinedEndpointIdsErrors;
 
     const duplicatedEndpointIdErrors = this.checkDuplicatedEndpointIdDefinitions(endpointDependenciesConfig);
@@ -25,12 +26,12 @@ export default class SimConfigEndpointDependenciesValidator {
   //Check that both source endpointIds and all target endpointIds in dependOn are defined in servicesInfo.
   private checkUndefinedEndpointIds(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
-    allDefinedEndpointIds: Set<string>
+    serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
   ): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
     endpointDependenciesConfig.forEach((dep, index) => {
       const errorLocation = `endpointDependencies[${index}]`;
-      if (!allDefinedEndpointIds.has(dep.endpointId)) {
+      if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(dep.endpointId)) {
         errorMessages.push({
           errorLocation: errorLocation,
           message: `Source endpointId "${dep.endpointId}" is not defined in servicesInfo.`,
@@ -38,7 +39,7 @@ export default class SimConfigEndpointDependenciesValidator {
       }
       dep.dependOn.forEach((d, subIndex) => {
         const subLocation = `${errorLocation}.dependOn[${subIndex}]`;
-        if (!allDefinedEndpointIds.has(d.endpointId)) {
+        if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(d.endpointId)) {
           errorMessages.push({
             errorLocation: subLocation,
             message: `Target endpointId "${d.endpointId}" is not defined in servicesInfo.`,

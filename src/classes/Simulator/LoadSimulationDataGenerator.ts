@@ -15,17 +15,17 @@ export default class LoadSimulationDataGenerator {
   ): Map<string, TCombinedRealtimeData[]> {
     const realtimeDataPerTimeSlot = new Map<string, TCombinedRealtimeData[]>(); // key: timeSlotKey,format is"day-hour-minute"
 
-    console.log("generateRealtimeDataFromSimulationResults")
-    console.log("=== Propagation Final Results ===");
+    // console.log("generateRealtimeDataFromSimulationResults")
+    // console.log("=== Propagation Final Results ===");
 
-    propagationFinalResults.forEach((innerMap, outerKey) => {
-      console.log(` "${outerKey}"`);
+    // propagationFinalResults.forEach((innerMap, outerKey) => {
+    //   console.log(` "${outerKey}"`);
 
-      innerMap.forEach((stats, endpointKey) => {
-        console.log(`  Endpoint: ${endpointKey}`);
-        console.dir(stats, { depth: null }); // 展開 stats 的所有欄位
-      });
-    });
+    //   innerMap.forEach((stats, endpointKey) => {
+    //     console.log(`  Endpoint: ${endpointKey}`);
+    //     console.dir(stats, { depth: null }); // 展開 stats 的所有欄位
+    //   });
+    // });
 
     // console.log("=== baseDataMap ===");
     // baseDataMap.forEach((value, key) => {
