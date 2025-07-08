@@ -89,7 +89,7 @@ export default class SimulationConfigManager {
         };
       };
       // console.log("parsedConfig = ",JSON.stringify(parsedConfig,null,2))
-      console.log("parsedConfig = ", yaml.dump(parsedConfigAfterZod))
+      // console.log("parsedConfig = ", yaml.dump(parsedConfigAfterZod))
       // success
       return {
         errorMessage: "",

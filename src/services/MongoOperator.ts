@@ -54,51 +54,80 @@ export default class MongoOperator {
 
     const now = new Date(Date.now());
 
-    let startTime: number;
-    let endTime: number;
-
-    if (timeOffset >= 0) {
-      // Query past data
-      startTime = GlobalSettings.ReadOnlyMode ? 0 :  now.getTime() - timeOffset;
-      endTime = now.getTime();
-    } else {
-      // Query future data (simulator)
-      now.setMinutes(0, 0, 0);
-      startTime = now.getTime();
-      endTime = now.getTime() - timeOffset;
-    }
-
-    const match = {
+    const matchMonitorMode = {
       date: {
-        $gte: new Date(startTime),
-        $lte: new Date(endTime),
+        $gte: new Date(GlobalSettings.ReadOnlyMode ? 0 : now.getTime() - timeOffset),
+        $lte: new Date(now.getTime()),
       },
     };
 
-    if (!namespace) {
-      return (
-        await HistoricalDataModel.find(match).exec()
-      ).map((r) => r.toObject());
-    }
+    const matchSimulatorMode = {
+      date: {
+        $gte: new Date(0)
+      },
+    };
 
-    const res = await HistoricalDataModel.aggregate([
-      { $match: match },
-      {
-        $project: {
-          _id: "$_id",
-          date: "$date",
-          services: {
-            $filter: {
-              input: "$services",
-              as: "service",
-              cond: { $eq: ["$$service.namespace", namespace] },
+    const match = GlobalSettings.SimulatorMode ? matchSimulatorMode : matchMonitorMode;
+
+    let rawHistoricalData: THistoricalData[];
+
+    if (!namespace) {
+      rawHistoricalData = (await HistoricalDataModel.find(match).exec()).map((r) =>
+        r.toObject()
+      );
+    } else {
+      rawHistoricalData = (await HistoricalDataModel.aggregate([
+        { $match: match },
+        { $sort: { date: 1 } },
+        {
+          $project: {
+            _id: "$_id",
+            date: "$date",
+            services: {
+              $filter: {
+                input: "$services",
+                as: "service",
+                cond: { $eq: ["$$service.namespace", namespace] },
+              },
             },
           },
         },
-      },
-    ]).exec();
+      ]).exec()).map((r) => r.toObject()) as THistoricalData[];
+    }
 
-    return res.map((r) => r.toObject()) as THistoricalData[];
+    // If in simulator mode, apply time offset to display simulated days
+    // (e.g., 7/7 15:39 => Day 1 00:00) instead of actual timestamps
+    if (GlobalSettings.SimulatorMode && rawHistoricalData.length > 0) {
+      console.log("模擬模式，做時間偏移處理")
+      // Take the first data point directly (MongoDB query is already sorted by time ascending)
+      const earliestDate = new Date(rawHistoricalData[0].date);
+      // Target base time: 2000-01-01T00:00:00.000Z
+      const baseTime = new Date(2000, 0, 1, 0, 0, 0, 0).getTime();
+
+      // Calculate offset = earliestDate timestamp - baseTime timestamp
+      const offset = earliestDate.getTime() - baseTime;
+
+      // This offset will be subtracted from all data points so that the earliest data aligns to 2000-01-01 00:00:00
+      // This helps the frontend display data starting from "Day 1 00:00" instead of the actual dates like 7/7 15:39.
+      rawHistoricalData = this.applyDateOffsetForDisplaySimulationTime(rawHistoricalData, offset);
+    }
+
+    return rawHistoricalData;
+  }
+
+  private applyDateOffsetForDisplaySimulationTime(rawHistoricalData: THistoricalData[], offset: number) {
+    return rawHistoricalData.map((historicalData) => ({
+      ...historicalData,
+      date: this.applyDateOffset(historicalData.date, offset),
+      services: historicalData.services.map((s) => ({
+        ...s,
+        date: this.applyDateOffset(s.date, offset),
+      })),
+    }));
+  }
+
+  private applyDateOffset(date: Date, offset: number): Date {
+    return new Date(date.getTime() - offset);
   }
 
   async saveEndpointDependencies(endpointDependencies: EndpointDependencies) {

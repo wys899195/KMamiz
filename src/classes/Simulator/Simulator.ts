@@ -36,17 +36,20 @@ export default class Simulator {
   static getInstance = () => this.instance || (this.instance = new this());
   private constructor() { };
 
-  generateSimulationDataFromConfig(configYamlString: string): {
+  generateSimulationDataFromConfig(configYamlString: string, simulateDate: number): {
     validationErrorMessage: string; // error message when validating YAML format
     convertingErrorMessage: string; // error message when converting to realtime data
     endpointDependencies: TEndpointDependency[];
     dataType: EndpointDataType[];
     basicReplicaCountList: TReplicaCount[];
-    realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]>
+    realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]>;
+
   } {
+
+
+    // Validate and preprocess simulation configuration
     const { errorMessage, parsedConfig } =
       SimulationConfigManager.getInstance().handleSimConfig(configYamlString);
-
     if (!parsedConfig) {
       return {
         validationErrorMessage: errorMessage,
@@ -57,9 +60,6 @@ export default class Simulator {
         realtimeCombinedDataPerTimeSlotMap: new Map(),
       };
     }
-
-    const simulateDate = Date.now();// The time at the start of the simulation.
-
 
     const {
       sampleRealTimeDataList,// to extract simulation data types even without traffic
@@ -102,7 +102,7 @@ export default class Simulator {
           endpointDependencies
         ),
         basicReplicaCountList,
-        realtimeCombinedDataPerTimeSlotMap
+        realtimeCombinedDataPerTimeSlotMap,
       };
     } catch (err) {
       const errMsg = `${err instanceof Error ? err.message : err}`;

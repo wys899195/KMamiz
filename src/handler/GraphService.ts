@@ -213,7 +213,7 @@ export default class GraphService extends IRequestHandler {
           const requestErrors = s.requestErrors;
           const serverErrors = s.serverErrors;
           const requests = s.requests - requestErrors - serverErrors;
-          
+
           return [
             requests,
             requestErrors,
@@ -233,41 +233,41 @@ export default class GraphService extends IRequestHandler {
       metrics,
     };
   }
-  
+
   async getServiceHistoricalStatistics(
     namespace?: string,
     notBefore?: number
-  ): Promise<TServiceStatistics[]>  {
+  ): Promise<TServiceStatistics[]> {
     const historicalData =
-    await ServiceUtils.getInstance().getRealtimeHistoricalData(
-      namespace,
-      notBefore
-    );
+      await ServiceUtils.getInstance().getRealtimeHistoricalData(
+        namespace,
+        notBefore
+      );
     if (historicalData.length === 0) {
       return []
     }
     var servicesStatisticsDict: Record<string, {
       name: string,
-      totalLatencyMean:number,
-      totalRequests:number,
-      totalServerError:number,
-      totalRequestError:number,
-      validConut:number,
+      totalLatencyMean: number,
+      totalRequests: number,
+      totalServerError: number,
+      totalRequestError: number,
+      validConut: number,
     }> = {}
     historicalData.forEach((h) => {
       h.services.forEach((si) => {
-        if (!(si.uniqueServiceName in servicesStatisticsDict)){
+        if (!(si.uniqueServiceName in servicesStatisticsDict)) {
           const [service, namespace, version] = si.uniqueServiceName.split("\t");
           servicesStatisticsDict[si.uniqueServiceName] = {
             name: `${service}.${namespace} (${version})`,
-            totalLatencyMean:0,
-            totalRequests:0,
-            totalServerError:0,
-            totalRequestError:0,
-            validConut:0
+            totalLatencyMean: 0,
+            totalRequests: 0,
+            totalServerError: 0,
+            totalRequestError: 0,
+            validConut: 0
           }
         }
-        if(typeof(si.latencyMean) === "number" && isFinite(si.latencyMean)){
+        if (typeof (si.latencyMean) === "number" && isFinite(si.latencyMean)) {
           servicesStatisticsDict[si.uniqueServiceName].totalLatencyMean += si.latencyMean;
           servicesStatisticsDict[si.uniqueServiceName].validConut += 1;
         }
@@ -277,15 +277,15 @@ export default class GraphService extends IRequestHandler {
       });
     });
     const servicesStatistics = Object.entries(servicesStatisticsDict)
-    .filter(([_, vals]) => vals.validConut !== 0)
-    .map(([key, vals]) => ({
-        uniqueServiceName:key,
-        name:vals.name,
+      .filter(([_, vals]) => vals.validConut !== 0)
+      .map(([key, vals]) => ({
+        uniqueServiceName: key,
+        name: vals.name,
         latencyMean: vals.totalLatencyMean / vals.validConut || 0,
         serverErrorRate: vals.totalServerError / vals.totalRequests || 0,
         requestErrorsRate: vals.totalRequestError / vals.totalRequests || 0,
       })
-    );
+      );
     return servicesStatistics;
   }
 
@@ -410,19 +410,20 @@ export default class GraphService extends IRequestHandler {
       totalClientErrors: 0,
       totalServerErrors: 0,
     };
+    
 
     filtered.sort((a, b) => a.date.getTime() - b.date.getTime());
     const source = isEndpoint
       ? filtered.map((s) => {
-          const endpoint = s.endpoints.find(
-            (e) => e.labelName === labelName && e.method === method
-          );
-          return {
-            date: s.date,
-            risk: undefined,
-            ...endpoint,
-          };
-        })
+        const endpoint = s.endpoints.find(
+          (e) => e.labelName === labelName && e.method === method
+        );
+        return {
+          date: s.date,
+          risk: undefined,
+          ...endpoint,
+        };
+      })
       : filtered;
 
     source.forEach((s) => {
@@ -443,7 +444,7 @@ export default class GraphService extends IRequestHandler {
       chartData.totalClientErrors += clientError;
       chartData.totalServerErrors += serverError;
     });
-
+console.log("chartData",chartData)
     return chartData;
   }
 
