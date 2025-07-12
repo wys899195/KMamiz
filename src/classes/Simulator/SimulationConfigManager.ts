@@ -68,7 +68,7 @@ export default class SimulationConfigManager {
             ...schemaValidationResult.error.errors.map((e) => {
               const errorLocation = e.path.join(".");
               return errorLocation
-                ? `At ${errorLocation}: ${e.message}`
+                ? `[Location] ${errorLocation}  [Error] ${e.message}`
                 : e.message;
             })
           ].join("\n---\n"),
@@ -83,7 +83,7 @@ export default class SimulationConfigManager {
         return {
           errorMessage: [
             "Failed to validate and preprocess simulation configuration file:",
-            ...validationAndPreprocessingErrors.map(e => `At ${e.errorLocation}: ${e.message}`)
+            ...validationAndPreprocessingErrors.map(e => `[Location] ${e.errorLocation}  [Error] ${e.message}`)
           ].join("\n---\n"),
           parsedConfig: null,
         };
