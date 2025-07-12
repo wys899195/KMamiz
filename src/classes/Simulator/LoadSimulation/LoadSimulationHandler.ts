@@ -5,20 +5,20 @@ import {
   TLoadSimulationConfig,
   TFallbackStrategy,
   TSimulationEndpointDelay,
-} from "../../entities/TSimulationConfig";
+} from "../../../entities/TSimulationConfig";
 import {
   TBaseDataWithResponses,
   TEndpointPropagationStatsForOneTimeSlot,
   EndpointFault,
   ServiceFault,
   TDependOnMapWithCallProbability
-} from "../../entities/TLoadSimulation";
-import { TReplicaCount } from "../../entities/TReplicaCount";
-import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
+} from "../../../entities/TLoadSimulation";
+import { TReplicaCount } from "../../../entities/TReplicaCount";
+import { TCombinedRealtimeData } from "../../../entities/TCombinedRealtimeData";
 
 import LoadSimulationDataGenerator from "./LoadSimulationDataGenerator";
 import LoadSimulationPropagator from "./LoadSimulationPropagator";
-import SimulatorUtils from "./SimulatorUtils";
+import SimulatorUtils from "../SimulatorUtils";
 
 export default class LoadSimulationHandler {
   private static instance?: LoadSimulationHandler;

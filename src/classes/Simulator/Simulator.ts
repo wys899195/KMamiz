@@ -1,7 +1,7 @@
 
 import SimulationConfigManager from './SimulationConfigManager';
 import SimEndpointDependencyBuilder from './SimEndpointDependencyBuilder';
-import LoadSimulationHandler from './LoadSimulationHandler';
+import LoadSimulationHandler from './LoadSimulation/LoadSimulationHandler';
 import {
   TSimulationEndpointDatatype,
   TSimulationNamespace,

@@ -1,10 +1,10 @@
 import {
   TCombinedRealtimeData
-} from "../../entities/TCombinedRealtimeData";
+} from "../../../entities/TCombinedRealtimeData";
 import {
   TBaseDataWithResponses,
   TEndpointPropagationStatsForOneTimeSlot,
-} from "../../entities/TLoadSimulation";
+} from "../../../entities/TLoadSimulation";
 
 export default class LoadSimulationDataGenerator {
 

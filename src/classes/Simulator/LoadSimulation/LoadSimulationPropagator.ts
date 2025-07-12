@@ -1,12 +1,12 @@
 import {
   TEndpointPropagationStatsForOneTimeSlot,
   TDependOnMapWithCallProbability,
-} from "../../entities/TLoadSimulation";
+} from "../../../entities/TLoadSimulation";
 import {
   TFallbackStrategy,
   TSimulationEndpointDelay
-} from "../../entities/TSimulationConfig";
-import SimulatorUtils from "./SimulatorUtils";
+} from "../../../entities/TSimulationConfig";
+import SimulatorUtils from "../SimulatorUtils";
 interface ErrorPropagationStrategy {
   /**
    * Determines whether to adjust the endpoint status based on errors from dependent endpoints for a given request
