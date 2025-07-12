@@ -106,11 +106,11 @@ export default class LoadSimulationPropagator {
     const preprocessedFallbackStrategyMap = this.preprocessFallbackStrategyMap(fallbackStrategyMap);
 
     // Iterate through each entry point (entryPointId) configured in the simulation configuration.
-    for (const [timeSlotKey, entryPointReqestCountMap] of entryEndpointRequestCountsMapByTimeSlot.entries()) {
+    for (const [timeSlotKey, entryPointRequestCountsMap] of entryEndpointRequestCountsMapByTimeSlot.entries()) {
       const replicaCountMap = replicaCountPerTimeSlot.get(timeSlotKey) || new Map<string, number>();
 
       const propagationResultAtThisTimeSlot = this.simulatePropagationInSingleTimeSlot(
-        entryPointReqestCountMap,
+        entryPointRequestCountsMap,
         dependOnMapWithCallProbability,
         delayWithFaultMapPerTimeSlot.get(timeSlotKey) || new Map<string, TSimulationEndpointDelay>(),
         errorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>(),
@@ -128,19 +128,25 @@ export default class LoadSimulationPropagator {
   }
 
   private simulatePropagationInSingleTimeSlot(
-    entryPointReqestCountMap: Map<string, number>,
+    entryPointRequestCountsMap: Map<string, number>,
     dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
-    delayMap: Map<string, TSimulationEndpointDelay>,
-    errorRateMap: Map<string, number>,
-    replicaCountMap: Map<string, number>,
+    endpointDelayMap: Map<string, TSimulationEndpointDelay>,
+    endpointErrorRateMap: Map<string, number>,
+    serviceReplicaCountMap: Map<string, number>,
     fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
     shouldComputeLatency: boolean
   ): Map<string, TEndpointPropagationStatsForOneTimeSlot> {
-    const stats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>(); // key: uniqueEndpointName value: TEndpointPropagationStats for this endpoint
+    const endpointStats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>(); // key: uniqueEndpointName value: TEndpointPropagationStats for this endpoint
 
-    // Store actual latencies of all requests for each endpointNode and status code, for later average calculation
-    // key: uniqueEndpointName, value: Map<statusCode, number[]>
-    const allLatenciesPerNodeByStatus = new Map<string, Map<string, number[]>>();
+    // for compute latency CV(// Use Welford's algorithm to calculate CV and avoid overflow issues when computing variance)
+    const onlineLatencyStats = new Map<string, Map<string, { count: number; mean: number; m2: number }>>();
+    const updateOnlineStats = (stats: { count: number; mean: number; m2: number }, x: number) => {
+      stats.count += 1;
+      const delta = x - stats.mean;
+      stats.mean += delta / stats.count;
+      const delta2 = x - stats.mean;
+      stats.m2 += delta * delta2;
+    };
 
 
 
@@ -154,10 +160,10 @@ export default class LoadSimulationPropagator {
       const totalLatencyMap = new Map<string, number>();
 
       const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
-      const replica = replicaCountMap.get(uniqueServiceName) ?? 1;
+      const replicaCount = serviceReplicaCountMap.get(uniqueServiceName) ?? 1;
 
       // If a service has replica = 0, it always reports failure to upstream callers and does not propagate requests downstream.
-      if (replica === 0) {
+      if (replicaCount === 0) {
         for (const reqId of requestIds) {
           // The endpoint itself always succeeds (not counted as ownError),
           // but reports a failure (false) to upstream,
@@ -169,14 +175,14 @@ export default class LoadSimulationPropagator {
         return { statusMap: currentStatus, latencyMap: totalLatencyMap };
       }
 
-      const errorRate = errorRateMap.get(uniqueEndpointName) ?? 0;
-      const delay: TSimulationEndpointDelay = delayMap.get(uniqueEndpointName) || { latencyMs: 0, jitterMs: 0 };
+      const errorRate = endpointErrorRateMap.get(uniqueEndpointName) ?? 0;
+      const delay: TSimulationEndpointDelay = endpointDelayMap.get(uniqueEndpointName) || { latencyMs: 0, jitterMs: 0 };
 
       // Simulate this endpointNode’s own error state
-      const ownSuccessMap = new Map<string, boolean>();
+      const ownSuccessStatus = new Map<string, boolean>();
       for (const reqId of requestIds) {
         const isError = Math.random() < errorRate;
-        ownSuccessMap.set(reqId, !isError);
+        ownSuccessStatus.set(reqId, !isError);
         currentStatus.set(reqId, !isError);
         const jitteredLatency = this.getJitteredLatency(delay.latencyMs, delay.jitterMs);
         totalLatencyMap.set(reqId, jitteredLatency); // Default latency starts with own latency
@@ -194,16 +200,17 @@ export default class LoadSimulationPropagator {
           selectedDependentsPerRequest.set(reqId, new Map());
         }
 
+
         // For each dependent group, randomly select one endpoint based on call probability
         dependentsGroups.forEach((group, groupIdx) => {
           for (const reqId of requestIds) {
             const rand = Math.random() * 100;
-            let accumProb = 0;
+            let cumulativeProb = 0;
             let selectedEndpoint = LoadSimulationPropagator.NO_DEPENDENT_CALL;
 
             for (const target of group) {
-              accumProb += target.callProbability;
-              if (rand < accumProb) {
+              cumulativeProb += target.callProbability;
+              if (rand < cumulativeProb) {
                 selectedEndpoint = target.targetEndpointUniqueEndpointName;
                 break;
               }
@@ -237,9 +244,11 @@ export default class LoadSimulationPropagator {
 
             // Filter requests that need to call this endpoint
             const reqsToCall = requestIds.filter(reqId => {
-              return requestIdToCalledEndpoints.get(reqId)!.has(epName);
+              return requestIdToCalledEndpoints.get(reqId)!.has(epName) &&
+                currentStatus.get(reqId); //If the current endpoint fails on its own (currentStatus = false), it will not proceed to call downstream services.
             });
             if (reqsToCall.length > 0 && !dependentCallsCache.has(epName)) {
+
               dependentCallsCache.set(epName, dfsForPropagate(epName, reqsToCall));
             }
           }
@@ -278,32 +287,35 @@ export default class LoadSimulationPropagator {
           currentStatus.set(reqId, newParentSuccess);
 
           // Update latency (critical path)
-          if (newParentSuccess) {
-            const ownLat = totalLatencyMap.get(reqId) ?? 0;
-            const maxDependentLat = dependentLatencies.length > 0 ? Math.max(...dependentLatencies) : 0;
-            totalLatencyMap.set(reqId, ownLat + maxDependentLat);
+          const ownLatency = totalLatencyMap.get(reqId) ?? 0;
+          const maxDependentLatency = dependentLatencies.length > 0 ? Math.max(...dependentLatencies) : 0;
+
+          if (ownSuccessStatus.get(reqId)) {
+            totalLatencyMap.set(reqId, ownLatency + maxDependentLatency);
+          } else {
+            totalLatencyMap.set(reqId, ownLatency);
           }
         }
       }
 
-      // Store all request latencies for this endpointNode by status code
-      if (!allLatenciesPerNodeByStatus.has(uniqueEndpointName)) {
-        allLatenciesPerNodeByStatus.set(uniqueEndpointName, new Map<string, number[]>());
+      if (!onlineLatencyStats.has(uniqueEndpointName)) {
+        onlineLatencyStats.set(uniqueEndpointName, new Map<string, { count: number; mean: number; m2: number }>());
       }
-      const latMap = allLatenciesPerNodeByStatus.get(uniqueEndpointName)!;
+      const statMap = onlineLatencyStats.get(uniqueEndpointName)!;
+
       for (const reqId of requestIds) {
         const statusCode = currentStatus.get(reqId) ? "200" : "500";
-        if (!latMap.has(statusCode)) {
-          latMap.set(statusCode, []);
+        if (!statMap.has(statusCode)) {
+          statMap.set(statusCode, { count: 0, mean: 0, m2: 0 });
         }
-        latMap.get(statusCode)!.push(totalLatencyMap.get(reqId)!);
+        updateOnlineStats(statMap.get(statusCode)!, totalLatencyMap.get(reqId)!);
       }
 
       // Count own errors and downstream errors
       let ownErrorCount = 0;
       let downstreamErrorCount = 0;
       for (const reqId of requestIds) {
-        const ownSuccess = ownSuccessMap.get(reqId) ?? false;
+        const ownSuccess = ownSuccessStatus.get(reqId) ?? false;
         const finalSuccess = currentStatus.get(reqId) ?? false;
 
         if (!ownSuccess) ownErrorCount++;
@@ -311,13 +323,13 @@ export default class LoadSimulationPropagator {
       }
 
       // Update endpointNode statistics
-      const prevStats = stats.get(uniqueEndpointName) ?? {
+      const prevStats = endpointStats.get(uniqueEndpointName) ?? {
         requestCount: 0,
         ownErrorCount: 0,
         downstreamErrorCount: 0,
         latencyStatsByStatus: new Map<string, { mean: number; cv: number }>(),
       };
-      stats.set(uniqueEndpointName, {
+      endpointStats.set(uniqueEndpointName, {
         requestCount: prevStats.requestCount + requestIds.length,
         ownErrorCount: prevStats.ownErrorCount + ownErrorCount,
         downstreamErrorCount: prevStats.downstreamErrorCount + downstreamErrorCount,
@@ -329,49 +341,33 @@ export default class LoadSimulationPropagator {
 
 
     // Execute simulation
-    for (const [entryPoint, count] of entryPointReqestCountMap.entries()) {
+    for (const [entryPoint, count] of entryPointRequestCountsMap.entries()) {
       const requestIds = this.generateRequestIds(entryPoint, count);
       dfsForPropagate(entryPoint, requestIds);
     }
 
-    // Calculate average latency and CV per status code, then update stats
-    for (const [uniqueEndpointName, latByStatus] of allLatenciesPerNodeByStatus.entries()) {
-      const prevStats = stats.get(uniqueEndpointName)!;
+    for (const [uniqueEndpointName, statMap] of onlineLatencyStats.entries()) {
+      const prevStats = endpointStats.get(uniqueEndpointName)!;
       const latencyStatsByStatus = new Map<string, { mean: number; cv: number }>();
-      for (const [status, latencies] of latByStatus.entries()) {
-        latencyStatsByStatus.set(
-          status,
-          shouldComputeLatency ? this.computeMeanAndCVByWelford(latencies) : { mean: 0, cv: 0 }
-        );
+
+      for (const [status, statsData] of statMap.entries()) {
+        if (shouldComputeLatency && statsData.count > 0) {
+          const variance = statsData.count > 1 ? statsData.m2 / (statsData.count - 1) : 0;
+          const stdDev = Math.sqrt(variance);
+          const cv = statsData.mean !== 0 ? stdDev / statsData.mean : 0;
+          latencyStatsByStatus.set(status, { mean: statsData.mean, cv });
+        } else {
+          latencyStatsByStatus.set(status, { mean: 0, cv: 0 });
+        }
       }
-      stats.set(uniqueEndpointName, {
+
+      endpointStats.set(uniqueEndpointName, {
         ...prevStats,
         latencyStatsByStatus,
       });
     }
 
-    return stats;
-  }
-
-  // Use Welford's algorithm to calculate CV and avoid overflow issues when computing variance
-  private computeMeanAndCVByWelford(latencies: number[]): { mean: number, cv: number } {
-    if (latencies.length === 0) return { mean: 0, cv: 0 };
-
-    let mean = 0;
-    let sumSqDiff = 0;
-
-    for (let i = 0; i < latencies.length; i++) {
-      const x = latencies[i];
-      const oldMean = mean;
-      mean += (x - mean) / (i + 1);
-      sumSqDiff += (x - mean) * (x - oldMean);
-    }
-
-    const variance = sumSqDiff / latencies.length;
-    const stdDev = Math.sqrt(variance);
-    const cv = mean !== 0 ? stdDev / mean : 0;
-
-    return { mean, cv };
+    return endpointStats;
   }
 
   private preprocessFallbackStrategyMap(fallbackStrategyMap: Map<string, TFallbackStrategy>): Map<string, ErrorPropagationStrategy> {
@@ -393,10 +389,10 @@ export default class LoadSimulationPropagator {
   }
 
   // Generate request IDs, format: 'endpoint-0', 'endpoint-1' ...
-  private generateRequestIds(ep: string, count: number): string[] {
+  private generateRequestIds(uniqueEndpointName: string, count: number): string[] {
     const ids: string[] = [];
     for (let i = 0; i < count; i++) {
-      ids.push(`${ep}-${i}`);
+      ids.push(`${uniqueEndpointName}-${i}`);
     }
     return ids;
   }
