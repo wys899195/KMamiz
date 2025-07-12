@@ -11,6 +11,7 @@ import {
   TEndpointPropagationStatsForOneTimeSlot,
   EndpointFault,
   ServiceFault,
+  TDependOnMapWithCallProbability
 } from "../../entities/TLoadSimulation";
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
@@ -35,7 +36,7 @@ export default class LoadSimulationHandler {
 
   generateCombinedRealtimeDataMap(
     loadSimulationSettings: TLoadSimulationSettings,
-    dependOnMap: Map<string, Set<string>>,
+    dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
     basicReplicaCountList: TReplicaCount[],
     EndpointRealTimeBaseDatas: Map<string, TBaseDataWithResponses>,
     simulateDate: number
@@ -54,7 +55,7 @@ export default class LoadSimulationHandler {
     // expected incoming traffic for each service under normal (non-overloaded) conditions
     // propagationResultsWithBasicError: Map<Key: "day-hour-minute", Value: Map< key: uniqueEndpointName, value:requestCount>>
     const propagationResultsWithBasicError = this.propagator.simulatePropagation(
-      dependOnMap,
+      dependOnMapWithCallProbability,
       entryEndpointRequestCountsMapByTimeSlot,
       delayWithFaultMapPerTimeSlot,
       basicErrorRateWithFaultMapPerTimeSlot,
@@ -83,7 +84,7 @@ export default class LoadSimulationHandler {
     // Re-run traffic propagation with adjusted error rates  
     // to obtain actual traffic distribution considering both "base errors" and "overload-induced errors"
     const propagationResultsWithOverloadError = this.propagator.simulatePropagation(
-      dependOnMap,
+      dependOnMapWithCallProbability,
       entryEndpointRequestCountsMapByTimeSlot,
       delayWithFaultMapPerTimeSlot,
       adjustedErrorRateMapPerTimeSlot,

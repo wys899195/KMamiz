@@ -98,7 +98,6 @@ export default class MongoOperator {
     // If in simulator mode, apply time offset to display simulated days
     // (e.g., 7/7 15:39 => Day 1 00:00) instead of actual timestamps
     if (GlobalSettings.SimulatorMode && rawHistoricalData.length > 0) {
-      console.log("模擬模式，做時間偏移處理")
       // Take the first data point directly (MongoDB query is already sorted by time ascending)
       const earliestDate = new Date(rawHistoricalData[0].date);
       // Target base time: 2000-01-01T00:00:00.000Z

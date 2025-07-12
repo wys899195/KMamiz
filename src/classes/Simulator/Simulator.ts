@@ -70,11 +70,17 @@ export default class Simulator {
       simulateDate
     );
 
-    const { dependOnMap, endpointDependencies } =
-      SimEndpointDependencyBuilder.getInstance().buildEndpointDependenciesBySimConfig(
-        parsedConfig,
-        simulateDate
-      )
+    const {
+      endpointDependencies,
+      dependOnMapWithCallProbability
+    } = SimEndpointDependencyBuilder.getInstance().buildEndpointDependenciesBySimConfig(
+      parsedConfig,
+      simulateDate
+    )
+    console.log(
+      "dependOnMapWithCallProbability",
+      JSON.stringify(Object.fromEntries(dependOnMapWithCallProbability), null, 2)
+    );
 
     let realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]> = new Map();
 
@@ -86,7 +92,7 @@ export default class Simulator {
       realtimeCombinedDataPerTimeSlotMap =
         LoadSimulationHandler.getInstance().generateCombinedRealtimeDataMap(
           loadSimulationSettings,
-          dependOnMap,
+          dependOnMapWithCallProbability,
           basicReplicaCountList,
           EndpointRealTimeBaseDatas,
           simulateDate

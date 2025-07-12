@@ -93,19 +93,35 @@ export const simulationNamespaceSchema = z.object({
   services: z.array(simulationServiceSchema),
 }).strict();
 
-export const simulationDependOnSchema = z.object({
-  uniqueEndpointName: z.string().optional(),// Users do not need to provide this.
+
+const dependOnBaseSchema = z.object({
+  uniqueEndpointName: z.string().optional(),
   endpointId: endpointIdSchema,
-  callRate: z.number().refine(
-    (val) => val >= 0 && val <= 100,
-    { message: "Invalid callRate. It must be between 0 and 100." }
-  ).optional(),//TODO
-}).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
+}).strict();
+
+const normalDependOnSchema = dependOnBaseSchema.extend({
+  callProbability: z.number()
+    .refine((val) => val >= 0 && val <= 100, { message: "Invalid callProbability. It must be between 0 and 100." })
+    .optional(),
+});
+
+const OneofGroupDependOnSchema = dependOnBaseSchema.extend({
+  callProbability: z.number()
+    .refine((val) => val >= 0 && val <= 100, { message: "Invalid callProbability. It must be between 0 and 100." }),
+});
+
+const selectOneOfGroupDependOnSchema = z.object({
+  oneOf: z.array(OneofGroupDependOnSchema),
+}).strict();
+
+
+const dependOnSchema = z.union([normalDependOnSchema, selectOneOfGroupDependOnSchema]);
+
 
 export const simulationEndpointDependencySchema = z.object({
   uniqueEndpointName: z.string().optional(),// Users do not need to provide this.
   endpointId: endpointIdSchema,
-  dependOn: z.array(simulationDependOnSchema),
+  dependOn: z.array(dependOnSchema),
 }).strict().refine(uniqueEndpointNameNotProvided, uniqueEndpointNameRefineOptions);
 
 
@@ -257,7 +273,12 @@ export type TSimulationService = z.infer<typeof simulationServiceSchema>;
 export type TSimulationNamespace = z.infer<typeof simulationNamespaceSchema>;
 
 // endpointDependencies
-export type TSimulationDependOn = z.infer<typeof simulationDependOnSchema>;
+export type TSimulationNormalDependOn = z.infer<typeof normalDependOnSchema>;
+export type TSimulationSelectOneOfGroupDependOn = z.infer<typeof selectOneOfGroupDependOnSchema>;
+export function isSelectOneOfGroupDependOnType(obj: TSimulationNormalDependOn | TSimulationSelectOneOfGroupDependOn): obj is TSimulationSelectOneOfGroupDependOn {
+  return selectOneOfGroupDependOnSchema.safeParse(obj).success;
+}
+export type TSimulationDependOn = z.infer<typeof dependOnSchema>;
 export type TSimulationEndpointDependency = z.infer<typeof simulationEndpointDependencySchema>;
 
 //  Load Simulation config

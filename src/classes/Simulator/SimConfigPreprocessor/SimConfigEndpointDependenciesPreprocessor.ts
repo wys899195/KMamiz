@@ -3,6 +3,7 @@ import {
   TSimulationConfigErrors,
   TSimulationEndpointDependency,
   TServiceInfoDefinitionContext,
+  isSelectOneOfGroupDependOnType,
 } from "../../../entities/TSimulationConfig";
 
 export default class SimConfigEndpointDependenciesPreprocessor {
@@ -40,14 +41,29 @@ export default class SimConfigEndpointDependenciesPreprocessor {
         });
       }
       source.dependOn.forEach((target, targetIndex) => {
-        target.uniqueEndpointName =
-          serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(target.endpointId);
-        if (!target.uniqueEndpointName) {
-          const targetLocation = `endpointDependencies[${sourceIndex}].dependOn[${targetIndex}].endpointId`;
-          errorMessages.push({
-            errorLocation: targetLocation,
-            message: `Failed to assign uniqueEndpointName: endpointId "${target.endpointId}" does not exist in the mapping. (This is unexpected system error!!)`
-          });
+        const targetLocation = `endpointDependencies[${sourceIndex}].dependOn[${targetIndex}]`;
+        if (isSelectOneOfGroupDependOnType(target)) {
+          target.oneOf.forEach((one,oneIndex) => {
+            one.uniqueEndpointName =
+              serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(one.endpointId);
+            if (!one.uniqueEndpointName) {
+              const oneLocation = `${targetLocation}.oneOf[${oneIndex}]`;
+              errorMessages.push({
+                errorLocation: oneLocation,
+                message: `Failed to assign uniqueEndpointName: endpointId "${one.endpointId}" does not exist in the mapping. (This is unexpected system error!!)`
+              });
+            }
+          })
+        } else {
+          target.uniqueEndpointName =
+            serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(target.endpointId);
+          if (!target.uniqueEndpointName) {
+
+            errorMessages.push({
+              errorLocation: targetLocation,
+              message: `Failed to assign uniqueEndpointName: endpointId "${target.endpointId}" does not exist in the mapping. (This is unexpected system error!!)`
+            });
+          }
         }
       });
     });

@@ -6,6 +6,7 @@ import {
   TSimulationConfigYAML,
   TSimulationEndpoint,
   TSimulationResponseBody,
+  TSimulationDependOn,
 } from "../../entities/TSimulationConfig";
 import DataCache from "../../services/DataCache";
 import { TReplicaCount } from "../../entities/TReplicaCount";
@@ -192,27 +193,36 @@ export default class SimConfigGenerator {
     endpointDependencies: TEndpointDependency[],
     endpointIdMap: Map<string, string>
   ): TSimulationEndpointDependency[] {
-    return endpointDependencies.map(dep => {
+    const result: TSimulationEndpointDependency[] = [];
+
+    endpointDependencies.forEach(dep => {
       const fromKey = dep.endpoint.uniqueEndpointName;
       const fromId = endpointIdMap.get(fromKey);
-      if (!fromId) return null;
+      if (!fromId) return;
 
-      const dependOn = dep.dependingOn
-        .filter(d => d.distance === 1) // Each endpoint in yaml only needs to know which endpoints it directly depends on
-        .map(d => {
-          const toKey = d.endpoint.uniqueEndpointName;
-          const toId = endpointIdMap.get(toKey);
-          return toId ? { endpointId: toId } : null;
-        })
-        .filter((d): d is { endpointId: string } => d !== null);
+      const dependOn: TSimulationDependOn[] = [];
 
-      if (dependOn.length === 0) return null;
+      dep.dependingOn.forEach(d => {
+        if (d.distance !== 1) return;
 
-      return {
+        const toKey = d.endpoint.uniqueEndpointName;
+        const toId = endpointIdMap.get(toKey);
+        if (!toId) return;
+
+        dependOn.push({
+          endpointId: toId,
+        });
+      });
+
+      if (dependOn.length === 0) return;
+
+      result.push({
         endpointId: fromId,
-        dependOn
-      };
-    }).filter((d): d is TSimulationEndpointDependency => d !== null);
+        dependOn,
+      });
+    });
+
+    return result;
   }
 
   // Convert the requestSample in endpointDataType to UserDefinedType in yaml

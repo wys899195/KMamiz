@@ -3,10 +3,14 @@ import {
   TSimulationConfigYAML,
   TSimulationEndpointDependency,
   TSimulationNamespace,
+  isSelectOneOfGroupDependOnType,
 } from "../../entities/TSimulationConfig";
 import { TRequestTypeUpper } from '../../entities/TRequestType'
 import { TEndpointDependency, TEndpointInfo } from "../../entities/TEndpointDependency";
-
+import {
+  TDependOnMapWithCallProbability,
+  TTargetWithCallProbability,
+} from "../../entities/TLoadSimulation";
 
 export default class SimEndpointDependencyBuilder {
   private static instance?: SimEndpointDependencyBuilder;
@@ -17,8 +21,7 @@ export default class SimEndpointDependencyBuilder {
     parsedConfig: TSimulationConfigYAML,
     simulateDate: number
   ): {
-    dependOnMap: Map<string, Set<string>>,
-    dependByMap: Map<string, Set<string>>,
+    dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
     endpointDependencies: TEndpointDependency[]
   } {
     const {
@@ -30,7 +33,8 @@ export default class SimEndpointDependencyBuilder {
 
     const {
       dependOnMap,
-      dependByMap
+      dependByMap,
+      dependOnMapWithCallProbability
     } = this.buildDependencyMaps(parsedConfig.endpointDependencies);
 
     const endpointDependencies = this.createEndpointDependencies(
@@ -41,45 +45,119 @@ export default class SimEndpointDependencyBuilder {
     );
 
     return {
-      dependOnMap,
-      dependByMap,
+      dependOnMapWithCallProbability,
       endpointDependencies,
     }
   }
 
-  private buildDependencyMaps(dependencies?: TSimulationEndpointDependency[]): {
+  buildDependOnMapForValidator(dependencies: TSimulationEndpointDependency[]): {
+    dependOnMap: Map<string, Set<string>>
+  } {
+    const dependOnMap = new Map<string, Set<string>>();
+
+    dependencies?.forEach(dep => {
+      const sourceEndpoint = dep.endpointId;
+      const dependOnEndpointList = dep.dependOn || [];
+
+      let dependOnSet = dependOnMap.get(sourceEndpoint);
+      if (!dependOnSet) {
+        dependOnSet = new Set();
+        dependOnMap.set(sourceEndpoint, dependOnSet);
+      }
+
+      dependOnEndpointList.forEach(depOn => {
+        if (isSelectOneOfGroupDependOnType(depOn)) {
+          depOn.oneOf.forEach((one => {
+            dependOnSet!.add(one.endpointId);
+          }))
+        } else {
+          dependOnSet!.add(depOn.endpointId);
+        }
+      });
+    });
+    return { dependOnMap };
+  }
+
+  private buildDependencyMaps(dependencies: TSimulationEndpointDependency[]): {
     dependOnMap: Map<string, Set<string>>;
+    dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
     dependByMap: Map<string, Set<string>>;
+
   } {
     const dependOnMap = new Map<string, Set<string>>();
     const dependByMap = new Map<string, Set<string>>();
+    const dependOnMapWithCallProbability: TDependOnMapWithCallProbability = new Map();
 
-    dependencies?.forEach(dep => {
-      const from = dep.uniqueEndpointName!;
-      const toList = dep.dependOn || [];
+    dependencies.forEach(dep => {
+      const sourceEndpoint = dep.uniqueEndpointName!;
+      const dependOnEndpointList = dep.dependOn || [];
 
-      let dependOnSet = dependOnMap.get(from);
+      let dependOnSet = dependOnMap.get(sourceEndpoint);
       if (!dependOnSet) {
         dependOnSet = new Set();
-        dependOnMap.set(from, dependOnSet);
+        dependOnMap.set(sourceEndpoint, dependOnSet);
       }
+      const dependOnCallProbArr: TTargetWithCallProbability[][] = []; // For establish dependOnMapWithCallProbability
+      dependOnEndpointList.forEach(depOn => {
+        if (isSelectOneOfGroupDependOnType(depOn)) {
+          const subDependOnCallProbArr: TTargetWithCallProbability[] = []; // For establish dependOnMapWithCallProbability
 
-      toList.forEach(to => {
-        // Establish dependency A -> B
-        dependOnSet!.add(to.uniqueEndpointName!);
+          depOn.oneOf.forEach((one => {
+            // Establish dependency A -> B (for dependOnMap)
+            dependOnSet!.add(one.uniqueEndpointName!);
 
-        // Establish reverse dependency B <- A
-        let dependBySet = dependByMap.get(to.uniqueEndpointName!);
-        if (!dependBySet) {
-          dependBySet = new Set();
-          dependByMap.set(to.uniqueEndpointName!, dependBySet);
+            // Establish reverse dependency B <- A (for dependByMap)
+            let dependBySet = dependByMap.get(one.uniqueEndpointName!);
+            if (!dependBySet) {
+              dependBySet = new Set();
+              dependByMap.set(one.uniqueEndpointName!, dependBySet);
+            }
+            dependBySet!.add(sourceEndpoint);
+
+            // Add to dependOnMapWithCallProbability
+            subDependOnCallProbArr.push({
+              targetEndpointUniqueEndpointName: one.uniqueEndpointName!,
+              callProbability: one.callProbability,
+            });
+
+          }))
+
+          // Add to dependOnMapWithCallProbability
+          dependOnCallProbArr.push(subDependOnCallProbArr);
+
+
+        } else {
+          // Establish dependOnMap
+          dependOnSet!.add(depOn.uniqueEndpointName!);
+
+          // Establish dependByMap
+          let dependBySet = dependByMap.get(depOn.uniqueEndpointName!);
+          if (!dependBySet) {
+            dependBySet = new Set();
+            dependByMap.set(depOn.uniqueEndpointName!, dependBySet);
+          }
+          dependBySet!.add(sourceEndpoint);
+
+          // Add to dependOnMapWithCallProbability
+          dependOnCallProbArr.push([
+            {
+              targetEndpointUniqueEndpointName: depOn.uniqueEndpointName!,
+              callProbability: depOn.callProbability ?? 100,
+            },
+          ]);
         }
-        dependBySet!.add(from);
       });
+      // Add to dependOnMapWithCallProbability
+      dependOnMapWithCallProbability.set(sourceEndpoint, dependOnCallProbArr);
     });
-
-    return { dependOnMap, dependByMap };
+    return {
+      dependOnMap,
+      dependByMap,
+      dependOnMapWithCallProbability
+    };
   }
+
+
 
   private extractEndpointsInfo(
     servicesInfo: TSimulationNamespace[],

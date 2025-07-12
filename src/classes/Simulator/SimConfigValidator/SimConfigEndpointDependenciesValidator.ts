@@ -3,7 +3,9 @@ import {
   TSimulationConfigErrors,
   TSimulationEndpointDependency,
   TServiceInfoDefinitionContext,
+  isSelectOneOfGroupDependOnType,
 } from "../../../entities/TSimulationConfig";
+import SimEndpointDependencyBuilder from "../SimEndpointDependencyBuilder";
 
 export default class SimConfigEndpointDependenciesValidator {
   validate(
@@ -19,6 +21,9 @@ export default class SimConfigEndpointDependenciesValidator {
     const cyclicDependenciesErrors = this.checkCyclicEndpointDependencies(endpointDependenciesConfig);
     if (cyclicDependenciesErrors.length) return cyclicDependenciesErrors;
 
+    const oneOfCallProbabilitySumErrors = this.checkOneOfCallProbabilitySum(endpointDependenciesConfig);
+    if (oneOfCallProbabilitySumErrors.length) return oneOfCallProbabilitySumErrors;
+
     // If no errors found, return an empty array.
     return [];
   }
@@ -30,52 +35,124 @@ export default class SimConfigEndpointDependenciesValidator {
   ): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
     endpointDependenciesConfig.forEach((dep, index) => {
-      const errorLocation = `endpointDependencies[${index}]`;
+      const sourceLocation = `endpointDependencies[${index}]`;
       if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(dep.endpointId)) {
         errorMessages.push({
-          errorLocation: errorLocation,
+          errorLocation: sourceLocation,
           message: `Source endpointId "${dep.endpointId}" is not defined in servicesInfo.`,
         });
       }
-      dep.dependOn.forEach((d, subIndex) => {
-        const subLocation = `${errorLocation}.dependOn[${subIndex}]`;
-        if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(d.endpointId)) {
-          errorMessages.push({
-            errorLocation: subLocation,
-            message: `Target endpointId "${d.endpointId}" is not defined in servicesInfo.`,
-          });
+      dep.dependOn.forEach((target, targetIndex) => {
+        const dependOnLocation = `${sourceLocation}.dependOn[${targetIndex}]`;
+        if (isSelectOneOfGroupDependOnType(target)) {
+          target.oneOf.forEach((one, oneIndex) => {
+            if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(one.endpointId)) {
+              const oneOfLocation = `${dependOnLocation}.oneOf[${oneIndex}]`;
+              errorMessages.push({
+                errorLocation: oneOfLocation,
+                message: `Target endpointId "${one.endpointId}" is not defined in servicesInfo.`,
+              });
+            }
+          })
+
+        } else {
+          if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(target.endpointId)) {
+            errorMessages.push({
+              errorLocation: dependOnLocation,
+              message: `Target endpointId "${target.endpointId}" is not defined in servicesInfo.`,
+            });
+          }
         }
+
       });
     });
 
     return errorMessages;
   }
-  // Check for duplicate source endpointIds within endpointDependencies
+  // Check for duplicate endpointIds within endpointDependencies
   private checkDuplicatedEndpointIdDefinitions(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
   ): TSimulationConfigErrors[] {
     const errorMessages: TSimulationConfigErrors[] = [];
     const seenSourceEndpointIds = new Set<string>();
 
-    endpointDependenciesConfig.forEach((dep, index) => {
-      const sourceId = dep.endpointId;
-      const errorLocation = `endpointDependencies[${index}]`;
+    // outer loop: Check for duplicate source endpointIds within endpointDependencies
+    endpointDependenciesConfig.forEach((source, sourceIndex) => {
+      const sourceEPLocation = `endpointDependencies[${sourceIndex}]`;
 
-      if (seenSourceEndpointIds.has(sourceId)) {
+      if (seenSourceEndpointIds.has(source.endpointId)) {
         errorMessages.push({
-          errorLocation: errorLocation,
-          message: `Duplicate source endpointId "${sourceId}" found.`,
+          errorLocation: sourceEPLocation,
+          message: `Duplicate source endpointId "${source.endpointId}" found.`,
         });
       } else {
-        seenSourceEndpointIds.add(sourceId);
+        seenSourceEndpointIds.add(source.endpointId);
+
+        // inner loop: Check for duplicate target endpointIds within endpointDependencies
+        const seenTargetEndpointIds = new Set<string>();
+        source.dependOn.forEach((target) => {
+          const targetEPLocation = `${sourceEPLocation}.dependOn`;
+          if (isSelectOneOfGroupDependOnType(target)) {
+            target.oneOf.forEach((one) => {
+              if (seenTargetEndpointIds.has(one.endpointId)) {
+                errorMessages.push({
+                  errorLocation: targetEPLocation,
+                  message: `Duplicate endpointId "${one.endpointId}" found in the dependOn list for "${source.endpointId}".`,
+                });
+              } else {
+                seenTargetEndpointIds.add(one.endpointId);
+              }
+            })
+          } else {
+            if (seenTargetEndpointIds.has(target.endpointId)) {
+              errorMessages.push({
+                errorLocation: targetEPLocation,
+                message: `Duplicate endpointId "${target.endpointId}" found in the dependOn list for "${source.endpointId}".`,
+              });
+            } else {
+              seenTargetEndpointIds.add(target.endpointId);
+            }
+          }
+        })
       }
     });
+
+
 
     // The reason why checking target endpointIds is unnecessary is because this issue 
     // can be avoided later during the construction of the dependOnMap(targets stored in Set).
 
     return errorMessages;
   }
+
+  private checkOneOfCallProbabilitySum(
+    endpointDependenciesConfig: TSimulationEndpointDependency[]
+  ): TSimulationConfigErrors[] {
+    const errorMessages: TSimulationConfigErrors[] = [];
+
+    endpointDependenciesConfig.forEach((source, sourceIndex) => {
+      const sourceEPLocation = `endpointDependencies[${sourceIndex}]`;
+
+      source.dependOn.forEach((target, targetIndex) => {
+        if (isSelectOneOfGroupDependOnType(target)) {
+          const targetEPLocation = `${sourceEPLocation}.dependOn[${targetIndex}]`;
+          const totalProbability = target.oneOf.reduce((sum, one) => {
+            return sum + one.callProbability;
+          }, 0);
+
+          if (totalProbability > 100) {
+            errorMessages.push({
+              errorLocation: targetEPLocation,
+              message: `Total callProbability of oneOf group exceeds 100 for source endpoint "${source.endpointId}". The current total is ${totalProbability}.`,
+            });
+          }
+        }
+      });
+    });
+
+    return errorMessages;
+  }
+
   // Check for cyclic dependency issues (including self-dependencies)
   private checkCyclicEndpointDependencies(
     endpointDependencies: TSimulationEndpointDependency[],
@@ -85,13 +162,8 @@ export default class SimConfigEndpointDependenciesValidator {
 
     // Create a dependency graph using Map,
     // where each endpoint maps to the list of endpoint IDs it depends on
-    const dependencyGraph = new Map<string, string[]>();
 
-    // Convert endpointDependencies into a graph structure
-    endpointDependencies.forEach(dep => {
-      dependencyGraph.set(dep.endpointId, Array.from(new Set(dep.dependOn.map(d => d.endpointId))));
-    });
-
+    const { dependOnMap } = SimEndpointDependencyBuilder.getInstance().buildDependOnMapForValidator(endpointDependencies);
     // Track already reported cycles to avoid duplicate error messages
     const reportedCycles = new Set<string>();
 
@@ -106,7 +178,7 @@ export default class SimConfigEndpointDependenciesValidator {
       visited.add(node);      // Mark the node as visited (within this DFS path)
 
       // Get the list of neighboring nodes (dependencies)
-      const neighbors = dependencyGraph.get(node) || [];
+      const neighbors = dependOnMap.get(node) || [];
       for (const neighbor of neighbors) {
         if (!visited.has(neighbor)) {
           // If the neighbor hasn't been visited in this path, continue DFS
@@ -137,7 +209,7 @@ export default class SimConfigEndpointDependenciesValidator {
     }
 
     // Iterate through all nodes and perform DFS to detect cycles
-    for (const node of dependencyGraph.keys()) {
+    for (const node of dependOnMap.keys()) {
       dfsForDetectCycle(node, [], new Set());
     }
 

@@ -444,7 +444,6 @@ export default class GraphService extends IRequestHandler {
       chartData.totalClientErrors += clientError;
       chartData.totalServerErrors += serverError;
     });
-console.log("chartData",chartData)
     return chartData;
   }
 
