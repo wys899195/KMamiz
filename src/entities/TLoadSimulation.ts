@@ -27,13 +27,18 @@ export type TEndpointPropagationStatsForOneTimeSlot = {
 export class EndpointFault {
   private _increaseLatency: number;
   private _increaseErrorRatePercent: number;
-
+  private _increseRequestCount: number;
+  private _requestMultiplier: number;
   constructor(
     increaseLatency: number = 0,
-    increaseErrorRatePercent: number = 0
+    increaseErrorRatePercent: number = 0,
+    increseRequestCount: number = 0,
+    requestMultiplier: number = 0
   ) {
     this._increaseLatency = Math.max(0, increaseLatency);
     this._increaseErrorRatePercent = Math.min(Math.max(0, increaseErrorRatePercent), 100);
+    this._increseRequestCount = Math.max(0, increseRequestCount);
+    this._requestMultiplier = Math.max(0, requestMultiplier);
   }
 
   setIncreaseLatency(next: number) {
@@ -42,12 +47,24 @@ export class EndpointFault {
   setIncreaseErrorRatePercent(next: number) {
     this._increaseErrorRatePercent = Math.min(Math.max(0, next), 100);
   }
+  setIncreseRequestCount(next: number) {
+    this._increseRequestCount = Math.max(0, next);
+  }
+  setRequestMultiplier(next: number) {
+    this._requestMultiplier = Math.max(0, next);
+  }
 
   getIncreaseLatency() {
     return this._increaseLatency;
   }
   getIncreaseErrorRatePercent() {
     return this._increaseErrorRatePercent;
+  }
+  getIncreseRequestCount(): number {
+    return this._increseRequestCount;
+  }
+  getRequestMultiplier(): number {
+    return this._requestMultiplier;
   }
 }
 

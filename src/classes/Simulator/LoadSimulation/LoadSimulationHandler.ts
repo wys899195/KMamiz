@@ -159,7 +159,7 @@ export default class LoadSimulationHandler {
     const probabilityOfMutation = loadSimulationConfig.mutationRatePercentage / 100;
 
 
-    // Construct entryEndpointRequestCountsMapByTimeSlot from endpointMetrics
+    // Construct entryEndpointRequestCountsMapByTimeSlot from endpointMetrics + fault injection
     for (const metric of endpointMetrics) {
       const uniqueEndpointName = metric.uniqueEndpointName!;
 
@@ -180,7 +180,6 @@ export default class LoadSimulationHandler {
       // Request Counts for Each Day
       // Map to store request counts for this specific endpoint across all simulated "day-hour-minute" intervals
       const baseDailyRequestCount = metric.expectedExternalDailyRequestCount;
-      if (baseDailyRequestCount === 0) continue;
 
       // Currently uses 24 intervals per day (i.e., 1-hour intervals)
       for (let day = 0; day < simulationDurationInDays; day++) {
@@ -192,7 +191,8 @@ export default class LoadSimulationHandler {
           day,
           uniqueEndpointName,
           realRequestCountForThisDay,
-          probabilityOfMutation
+          probabilityOfMutation,
+          allFaultRecords.allEndpointFaultRecords,
         );
       }
     }
@@ -283,6 +283,7 @@ export default class LoadSimulationHandler {
     uniqueEndpointName: string,
     realRequestCountForThisDay: number,
     probabilityOfMutation: number,
+    allEndpointFaultRecords: Map<string, Map<string, EndpointFault>>,
   ) {
 
     const totalIntervals = 24;
@@ -325,7 +326,9 @@ export default class LoadSimulationHandler {
     // And apply per-hour mutation
 
     for (let hour = 0; hour < totalIntervals; hour++) {
+      const timeSlotKey = `${day}-${hour}-0`;
       let count = flatRequestCounts[hour];
+      const injectTrafficFaultInthisTimeSlot = allEndpointFaultRecords.get(timeSlotKey);
       if (count > 0) {
         // request count mutation
         // console.log("probabilityOfMutatio", probabilityOfMutation)
@@ -338,11 +341,21 @@ export default class LoadSimulationHandler {
         }
 
         // Create time slot key in the format "day-hour-minute"
-        const timeSlotKey = `${day}-${hour}-0`;
+
         if (!entryEndpointRequestCountsMapByTimeSlot.has(timeSlotKey)) {
           entryEndpointRequestCountsMapByTimeSlot.set(timeSlotKey, new Map());
         }
         const endpointCountMap = entryEndpointRequestCountsMapByTimeSlot.get(timeSlotKey)!;
+
+        if (injectTrafficFaultInthisTimeSlot) {
+          const fault = injectTrafficFaultInthisTimeSlot.get(uniqueEndpointName)
+          if (fault) {
+            // Since increaseRequestCount and requestMultiplier are mutually exclusive options,
+            // only one of them will be effective during actual execution.
+            count += fault.getIncreseRequestCount();
+            count *= fault.getRequestMultiplier();
+          }
+        }
         endpointCountMap.set(uniqueEndpointName, count);
       }
     }
@@ -547,11 +560,14 @@ export default class LoadSimulationHandler {
     loadSimulationSettings.faults.forEach(fault => {
       const isLatency = fault.type === 'increase-latency';
       const isErrorRate = fault.type === 'increase-error-rate';
+      const isTrafficInjecttion = fault.type === "inject-traffic"
       const isReduceInstance = fault.type === 'reduce-instance';
-      if (isLatency || isErrorRate) {
+      if (isLatency || isErrorRate || isTrafficInjecttion) {
         // EndpointFault
         const latency = isLatency ? fault.increaseLatencyMs : 0;
         const errorRate = isErrorRate ? fault.increaseErrorRatePercent : 0;
+        const reqCount = isTrafficInjecttion ? fault.increaseRequestCount : 0;
+        const reqRate = isTrafficInjecttion ? fault.requestMultiplier : 0;
 
 
         // 將故障注入到每個時段
@@ -560,6 +576,11 @@ export default class LoadSimulationHandler {
           const actualDay = fault.time.day + Math.floor(currentHour / 24) - 1;
           const actualHour = currentHour % 24;
           const timeSlotKey = `${actualDay}-${actualHour}-0`;
+          console.log("GGGG", timeSlotKey, " ", reqRate)
+          if (isTrafficInjecttion) {
+            console.log("TTTT", timeSlotKey, " ", fault.requestMultiplier)
+          }
+
           const timeSlotMap = allEndpointFaultRecords.get(timeSlotKey);
           if (!timeSlotMap) continue;
           fault.targets.endpoints.forEach(ep => {
@@ -571,6 +592,12 @@ export default class LoadSimulationHandler {
             }
             faultObj.setIncreaseLatency(latency);
             faultObj.setIncreaseErrorRatePercent(errorRate);
+            if (reqCount) {
+              faultObj.setIncreseRequestCount(reqCount);
+            }
+            if (reqRate) {
+              faultObj.setRequestMultiplier(reqRate);
+            }
           });
 
         }

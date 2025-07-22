@@ -59,7 +59,7 @@ export default class SimConfigLoadSimulationValidator {
           if (!serviceInfoDefinitionContext.allDefinedUniqueServiceNames.has(uniqueServiceName)) {
             errorMessages.push({
               errorLocation: versionLocation,
-              message: `service "${service.serviceName}" in namespace "${namespace}" with version "${version.version}" is not defined in servicesInfo.`,
+              message: `service "${service.serviceName}" in namespace "${namespace.namespace}" with version "${version.version}" is not defined in servicesInfo.`,
             });
           } else {
             //assign uniqueServiceName
@@ -84,7 +84,7 @@ export default class SimConfigLoadSimulationValidator {
           if (seenServiceVersions.has(uniqueServiceName)) {
             errorMessages.push({
               errorLocation: versionLocation,
-              message: `Duplicate service "${service.serviceName}" in namespace "${namespace}" with version "${version.version}" found in serviceMetrics.`,
+              message: `Duplicate service "${service.serviceName}" in namespace "${namespace.namespace}" with version "${version.version}" found in serviceMetrics.`,
             });
           } else {
             seenServiceVersions.add(uniqueServiceName);
@@ -206,7 +206,7 @@ export default class SimConfigLoadSimulationValidator {
     const errorMessages: TSimulationConfigErrors[] = [];
 
     faultSettings.forEach((fault, faultIndex) => {
-      if (fault.type == 'increase-error-rate' || fault.type == 'increase-latency') {
+      if (fault.type == 'increase-error-rate' || fault.type == 'increase-latency' || fault.type == "inject-traffic") {
         fault.targets.endpoints.forEach((targetEndpoint, targetEndpointIndex) => {
           if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(targetEndpoint.endpointId)) {
             const errorTargetEndpointLocation = `loadSimulation.faults[${faultIndex}].endpoints[${targetEndpointIndex}]`;
@@ -216,6 +216,19 @@ export default class SimConfigLoadSimulationValidator {
             });
           }
         })
+      }
+    })
+    faultSettings.forEach((fault, faultIndex) => {
+      if (fault.type == "inject-traffic") {
+        const hasCount = fault.increaseRequestCount !== undefined;
+        const hasRate = fault.requestMultiplier !== undefined;
+        if ((hasCount && hasRate) || (!hasCount && !hasRate)) {
+          const errorLocation = `loadSimulation.faults[${faultIndex}]`;
+          errorMessages.push({
+            errorLocation: errorLocation,
+            message: `Exactly one of the fields increaseRequestCount or requestMultiplier must be set.`,
+          });
+        }
       }
     })
 

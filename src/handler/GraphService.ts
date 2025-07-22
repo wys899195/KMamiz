@@ -13,6 +13,7 @@ import DataCache from "../services/DataCache";
 import ServiceUtils from "../services/ServiceUtils";
 import { TRequestInfoChartData } from "../entities/TRequestInfoChartData";
 import Logger from "../utils/Logger";
+import GlobalSettings from "../GlobalSettings";
 
 export default class GraphService extends IRequestHandler {
   constructor() {
@@ -212,7 +213,11 @@ export default class GraphService extends IRequestHandler {
         (s): [number, number, number, number, number, number] => {
           const requestErrors = s.requestErrors;
           const serverErrors = s.serverErrors;
-          const requests = s.requests - requestErrors - serverErrors;
+          //TODO tofix
+          let requests = s.requests - requestErrors - serverErrors;
+          if (GlobalSettings.SimulatorMode){
+            requests = s.requests;
+          }
 
           return [
             requests,

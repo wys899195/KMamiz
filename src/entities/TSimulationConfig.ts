@@ -233,6 +233,27 @@ const increaseErrorRateFaultSchema = z.object({
     })
 }).strict();
 
+
+const injectTrafficFaultSchema = z.object({
+  type: z.literal("inject-traffic"),
+  targets: z.object({
+    services: z.array(faultTargetServiceSchema).default([]),
+    endpoints: z.array(faultTargetEndpointSchema).default([]),
+  }).strict(),
+  time: faultTimeSchema,
+  increaseRequestCount: z
+    .number()
+    .int({ message: "increaseRequestCount must be an integer." })
+    .min(1, { message: "increaseRequestCount must be at least 1." })
+    .optional(),
+  requestMultiplier: z
+    .number()
+    .refine((val) => val > 0, {
+      message: "requestMultiplier must be greater than 0.",
+    })
+    .optional(),
+}).strict();
+
 const reduceInstanceFaultSchema = z.object({
   type: z.literal("reduce-instance"),
   targets: z.object({
@@ -246,6 +267,7 @@ export const faultSchema = z.discriminatedUnion("type", [
   increaseLatencyFaultSchema,
   increaseErrorRateFaultSchema,
   reduceInstanceFaultSchema,
+  injectTrafficFaultSchema
 ]);
 
 

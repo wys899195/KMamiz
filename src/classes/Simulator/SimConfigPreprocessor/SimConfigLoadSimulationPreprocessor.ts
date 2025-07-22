@@ -120,7 +120,7 @@ export default class SimConfigLoadSimulationPreprocessor {
   ): void {
     faultSettings.forEach((fault) => {
       // Convert the services specified in the fault's targets into a set of all corresponding endpointIds
-      if (fault.type == 'increase-error-rate' || fault.type == 'increase-latency') {// faults that can specify target endpoints
+      if (fault.type == 'increase-error-rate' || fault.type == 'increase-latency' || fault.type == "inject-traffic") {// faults that can specify target endpoints
         // Collect all endpointIds related to the services specified in this fault's targets
         const allEndpointIdSetForThisFault = new Set<string>();
         fault.targets.services.forEach((targetService) => {
