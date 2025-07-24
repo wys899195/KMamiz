@@ -148,7 +148,8 @@ export default class LoadSimulationPropagator {
       stats.m2 += delta * delta2;
     };
 
-
+    // Track visited (endpoint::requestId) to avoid infinite recursion
+    const visited = new Set<string>();
 
     // DFS to simulate errors and calculate actual latency for each request
     const dfsForPropagate = (
@@ -159,12 +160,24 @@ export default class LoadSimulationPropagator {
       const currentStatus = new Map<string, boolean>();
       const totalLatencyMap = new Map<string, number>();
 
+      // Filter out requestIds that have already visited this endpoint
+      const filteredRequestIds = requestIds.filter(reqId => {
+        const key = `${uniqueEndpointName}::${reqId}`;
+        if (visited.has(key)) return false;
+        visited.add(key);
+        return true;
+      });
+      if (filteredRequestIds.length === 0) {
+        return { statusMap: currentStatus, latencyMap: totalLatencyMap };
+      }
+
+
       const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
       const replicaCount = serviceReplicaCountMap.get(uniqueServiceName) ?? 1;
 
       // If a service has replica = 0, it always reports failure to upstream callers and does not propagate requests downstream.
       if (replicaCount === 0) {
-        for (const reqId of requestIds) {
+        for (const reqId of filteredRequestIds) {
           // The endpoint itself always succeeds (not counted as ownError),
           // but reports a failure (false) to upstream,
           // and latency is treated as 0.
@@ -180,7 +193,7 @@ export default class LoadSimulationPropagator {
 
       // Simulate this endpointNode’s own error state
       const ownSuccessStatus = new Map<string, boolean>();
-      for (const reqId of requestIds) {
+      for (const reqId of filteredRequestIds) {
         const isError = Math.random() < errorRate;
         ownSuccessStatus.set(reqId, !isError);
         currentStatus.set(reqId, !isError);
@@ -196,14 +209,14 @@ export default class LoadSimulationPropagator {
         // Map key: requestId, value: Map<groupIndex, selectedEndpointName>
         const selectedDependentsPerRequest = new Map<string, Map<number, string>>();
 
-        for (const reqId of requestIds) {
+        for (const reqId of filteredRequestIds) {
           selectedDependentsPerRequest.set(reqId, new Map());
         }
 
 
         // For each dependent group, randomly select one endpoint based on call probability
         dependentsGroups.forEach((group, groupIdx) => {
-          for (const reqId of requestIds) {
+          for (const reqId of filteredRequestIds) {
             const rand = Math.random() * 100;
             let cumulativeProb = 0;
             let selectedEndpoint = LoadSimulationPropagator.NO_DEPENDENT_CALL;
@@ -225,7 +238,7 @@ export default class LoadSimulationPropagator {
 
         // Identify which endpoints are actually called for each request (excluding NO_DEPENDENT_CALL)
         const requestIdToCalledEndpoints = new Map<string, Set<string>>();
-        for (const reqId of requestIds) {
+        for (const reqId of filteredRequestIds) {
           const selectedMap = selectedDependentsPerRequest.get(reqId)!;
           const calledEndpoints = new Set<string>();
           for (const selectedEp of selectedMap.values()) {
@@ -243,7 +256,7 @@ export default class LoadSimulationPropagator {
             if (epName === LoadSimulationPropagator.NO_DEPENDENT_CALL) continue;
 
             // Filter requests that need to call this endpoint
-            const reqsToCall = requestIds.filter(reqId => {
+            const reqsToCall = filteredRequestIds.filter(reqId => {
               return requestIdToCalledEndpoints.get(reqId)!.has(epName) &&
                 currentStatus.get(reqId); //If the current endpoint fails on its own (currentStatus = false), it will not proceed to call downstream services.
             });
@@ -255,16 +268,16 @@ export default class LoadSimulationPropagator {
         }
 
         // Finally, for each requestId, determine success and latency
-        for (const reqId of requestIds) {
+        for (const reqId of filteredRequestIds) {
           if (!currentStatus.has(reqId)) continue;
-          if (!currentStatus.get(reqId)) continue; // Already failed, no need to check downstream
+          if (currentStatus.get(reqId) === false) continue; // Already failed, no need to check downstream
 
           const dependentSuccessList: boolean[] = [];
           let dependentLatencies: number[] = [];
 
           const selectedMap = selectedDependentsPerRequest.get(reqId)!;
 
-          for (const [_, selectedEp] of selectedMap.entries()) {
+          for (const selectedEp of selectedMap.values()) {
             if (selectedEp === LoadSimulationPropagator.NO_DEPENDENT_CALL) {
               // Treat NO_DEPENDENT_CALL as success and do not add latency
               dependentSuccessList.push(true);
@@ -303,7 +316,7 @@ export default class LoadSimulationPropagator {
       }
       const statMap = onlineLatencyStats.get(uniqueEndpointName)!;
 
-      for (const reqId of requestIds) {
+      for (const reqId of filteredRequestIds) {
         const statusCode = currentStatus.get(reqId) ? "200" : "500";
         if (!statMap.has(statusCode)) {
           statMap.set(statusCode, { count: 0, mean: 0, m2: 0 });
@@ -314,7 +327,7 @@ export default class LoadSimulationPropagator {
       // Count own errors and downstream errors
       let ownErrorCount = 0;
       let downstreamErrorCount = 0;
-      for (const reqId of requestIds) {
+      for (const reqId of filteredRequestIds) {
         const ownSuccess = ownSuccessStatus.get(reqId) ?? false;
         const finalSuccess = currentStatus.get(reqId) ?? false;
 
@@ -330,7 +343,7 @@ export default class LoadSimulationPropagator {
         latencyStatsByStatus: new Map<string, { mean: number; cv: number }>(),
       };
       endpointStats.set(uniqueEndpointName, {
-        requestCount: prevStats.requestCount + requestIds.length,
+        requestCount: prevStats.requestCount + filteredRequestIds.length,
         ownErrorCount: prevStats.ownErrorCount + ownErrorCount,
         downstreamErrorCount: prevStats.downstreamErrorCount + downstreamErrorCount,
         latencyStatsByStatus: prevStats.latencyStatsByStatus,

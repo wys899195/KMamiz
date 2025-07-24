@@ -77,10 +77,10 @@ export default class Simulator {
       parsedConfig,
       simulateDate
     )
-    console.log(
-      "dependOnMapWithCallProbability",
-      JSON.stringify(Object.fromEntries(dependOnMapWithCallProbability), null, 2)
-    );
+    // console.log(
+    //   "dependOnMapWithCallProbability",
+    //   JSON.stringify(Object.fromEntries(dependOnMapWithCallProbability), null, 2)
+    // );
 
     let realtimeCombinedDataPerTimeSlotMap: Map<string, TCombinedRealtimeData[]> = new Map();
 
