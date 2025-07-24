@@ -5,14 +5,13 @@ import {
   TLoadSimulationConfig,
   TFallbackStrategy,
   TSimulationEndpointDelay,
-} from "../../../entities/TSimulationConfig";
+} from "../../../entities/simulator/TSimConfigLoadSimulation";
 import {
   TBaseDataWithResponses,
   TEndpointPropagationStatsForOneTimeSlot,
-  EndpointFault,
-  ServiceFault,
   TDependOnMapWithCallProbability
-} from "../../../entities/TLoadSimulation";
+} from "../../../entities/simulator/TLoadSimulation";
+import { EndpointFault, ServiceFault } from "../../../entities/simulator/TFaultInjection";
 import { TReplicaCount } from "../../../entities/TReplicaCount";
 import { TCombinedRealtimeData } from "../../../entities/TCombinedRealtimeData";
 
@@ -576,10 +575,6 @@ export default class LoadSimulationHandler {
           const actualDay = fault.time.day + Math.floor(currentHour / 24) - 1;
           const actualHour = currentHour % 24;
           const timeSlotKey = `${actualDay}-${actualHour}-0`;
-          console.log("GGGG", timeSlotKey, " ", reqRate)
-          if (isTrafficInjecttion) {
-            console.log("TTTT", timeSlotKey, " ", fault.requestMultiplier)
-          }
 
           const timeSlotMap = allEndpointFaultRecords.get(timeSlotKey);
           if (!timeSlotMap) continue;

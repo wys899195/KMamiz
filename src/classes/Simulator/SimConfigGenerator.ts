@@ -1,14 +1,10 @@
 
 import yaml from "js-yaml";
-import {
-  TSimulationEndpointDependency,
-  TSimulationNamespace,
-  TSimulationConfigYAML,
-  TSimulationEndpoint,
-  TSimulationResponseBody,
-  TSimulationDependOn,
-} from "../../entities/TSimulationConfig";
-import DataCache from "../../services/DataCache";
+
+import { TSimulationNamespace, TSimulationEndpoint, TSimulationResponseBody } from "../../entities/simulator/TSimConfigServiceInfo";
+import { TSimulationEndpointDependency, TSimulationDependOn } from "../../entities/simulator/TSimConfigEndpointDependency";
+import { TSimulationConfigYAML } from "../../entities/simulator/TSimConfig";
+
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointDependency } from "../../entities/TEndpointDependency";
 import { TEndpointDataType } from "../../entities/TEndpointDataType";
@@ -17,6 +13,7 @@ import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
 import { CEndpointDataType } from "../Cacheable/CEndpointDataType";
 import { CReplicas } from "../Cacheable/CReplicas";
 
+import DataCache from "../../services/DataCache";
 
 export default class SimConfigGenerator {
   // Retrieve necessary data from kmamiz and convert it into a YAML file that can be used to generate static simulation data

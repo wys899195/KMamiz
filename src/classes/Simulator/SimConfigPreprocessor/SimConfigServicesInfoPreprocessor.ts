@@ -1,14 +1,13 @@
-import {
-
-  TSimulationConfigErrors,
-  TSimulationNamespace,
-  BodyInputType,
-} from "../../../entities/TSimulationConfig";
+import { TSimulationNamespace } from "../../../entities/simulator/TSimConfigServiceInfo";
 import SimulatorUtils from "../SimulatorUtils";
+import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+
+
+type BodyInputType = "sample" | "typeDefinition" | "empty" | "unknown";
 
 export default class SimConfigServicesInfoPreprocessor {
 
-  preprocess(servicesInfoConfig: TSimulationNamespace[]): TSimulationConfigErrors[] {
+  preprocess(servicesInfoConfig: TSimulationNamespace[]): TSimConfigValidationError[] {
     this.assignUniqueServiceNameAndEndpointName(servicesInfoConfig);
 
     const preprocessEndpointBodiesErrors = this.preprocessEndpointBodies(servicesInfoConfig);
@@ -50,8 +49,8 @@ export default class SimConfigServicesInfoPreprocessor {
   // Preprocess the requestBody and responseBody of each endpoint
   private preprocessEndpointBodies(
     servicesInfoConfig: TSimulationNamespace[]
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
     servicesInfoConfig.forEach((namespace, nsIndex) => {
       namespace.services.forEach((service, svcIndex) => {
         service.versions.forEach((version, verIndex) => {

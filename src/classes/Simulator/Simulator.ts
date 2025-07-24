@@ -6,7 +6,7 @@ import {
   TSimulationEndpointDatatype,
   TSimulationNamespace,
   TSimulationResponseBody,
-} from "../../entities/TSimulationConfig";
+} from "../../entities/simulator/TSimConfigServiceInfo";
 
 import DataCache from "../../services/DataCache";
 import { TRealtimeData } from "../../entities/TRealtimeData";

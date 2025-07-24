@@ -1,12 +1,14 @@
-import {
-  TSimulationConfigErrors,
-  TSimulationNamespace,
-} from "../../../entities/TSimulationConfig";
+import { TSimulationNamespace } from "../../../entities/simulator/TSimConfigServiceInfo";
+import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+
 import SimulatorUtils from "../SimulatorUtils";
+
+
+
 export default class SimConfigServicesInfoValidator {
   validate(
     servicesInfoConfig: TSimulationNamespace[]
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     const duplicateServiceErrors = this.checkDuplicateServiceDefinitions(servicesInfoConfig);
     if (duplicateServiceErrors.length) return duplicateServiceErrors;
 
@@ -19,8 +21,8 @@ export default class SimConfigServicesInfoValidator {
 
   private checkDuplicateServiceDefinitions(
     servicesInfoConfig: TSimulationNamespace[]
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
     const existingUniqueServiceName = new Set<string>();
 
     servicesInfoConfig.forEach(ns =>
@@ -45,8 +47,8 @@ export default class SimConfigServicesInfoValidator {
 
   private checkDuplicateEndpointDefinitions(
     servicesInfoConfig: TSimulationNamespace[]
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
     const allDefinedEndpointIds = new Set<string>();
     const allDefinedUniqueEndpointNames = new Set<string>();
 

@@ -1,11 +1,11 @@
+import { TSimulationFaults } from "../../../entities/simulator/TSimConfigFaultInjection";
 import {
-  TSimulationConfigErrors,
+  TFallbackStrategy,
   TLoadSimulationSettings,
   TSimulationEndpointMetric,
-  TFallbackStrategy,
-  TServiceInfoDefinitionContext,
-  TSimulationFaults,
-} from "../../../entities/TSimulationConfig";
+} from "../../../entities/simulator/TSimConfigLoadSimulation";
+import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
+import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
 import SimulatorUtils from "../SimulatorUtils";
 
 export default class SimConfigLoadSimulationPreprocessor {
@@ -13,7 +13,7 @@ export default class SimConfigLoadSimulationPreprocessor {
   preprocess(
     loadSimulationSettings: TLoadSimulationSettings,
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
 
     // preprocess endpointMetric
     const preprocessEndpointMetricsErrors = this.preprocessEndpointMetrics(
@@ -21,7 +21,7 @@ export default class SimConfigLoadSimulationPreprocessor {
       serviceInfoDefinitionContext,
     )
     if (preprocessEndpointMetricsErrors.length) return preprocessEndpointMetricsErrors;
-    
+
     this.addDefaultMetricsForMissingEndpointsInPlace(loadSimulationSettings, serviceInfoDefinitionContext);
 
     // preprocess faults
@@ -38,10 +38,10 @@ export default class SimConfigLoadSimulationPreprocessor {
   private preprocessEndpointMetrics(
     loadSimulationSettings: TLoadSimulationSettings,
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     // errorMessages is here only as a safeguard.
     // If the previous validations were correctly implemented, this error should not occur
-    const errorMessages: TSimulationConfigErrors[] = [];
+    const errorMessages: TSimConfigValidationError[] = [];
     loadSimulationSettings.endpointMetrics.forEach((epMetric, index) => {
       epMetric.uniqueEndpointName = serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(epMetric.endpointId);
       if (!epMetric.uniqueEndpointName) {

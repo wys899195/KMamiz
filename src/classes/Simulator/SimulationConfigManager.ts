@@ -1,13 +1,13 @@
 import {
-  TSimulationConfigProcessResult,
   TSimulationConfigYAML,
   simulationConfigYAMLSchema,
-  TSimulationConfigErrors,
-  TSimulationNamespace,
-  TServiceInfoDefinitionContext,
-} from "../../entities/TSimulationConfig";
+} from "../../entities/simulator/TSimConfig";
+import { TSimulationNamespace } from "../../entities/simulator/TSimConfigServiceInfo";
+import { TServiceInfoDefinitionContext } from "../../entities/simulator/TServiceInfoDefinitionContext";
+
 import SimConfigGenerator from "./SimConfigGenerator";
 import yaml from "js-yaml";
+import { TSimConfigValidationError } from "../../entities/simulator/TSimConfigValidationError";
 
 import SimConfigServicesInfoValidator from "./SimConfigValidator/SimConfigServicesInfoValidator";
 import SimConfigEndpointDependenciesValidator from "./SimConfigValidator/SimConfigEndpointDependenciesValidator";
@@ -49,7 +49,10 @@ export default class SimulationConfigManager {
     this.generator = new SimConfigGenerator();
   };
 
-  handleSimConfig(yamlString: string): TSimulationConfigProcessResult {
+  handleSimConfig(yamlString: string): {
+    errorMessage: string;
+    parsedConfig: TSimulationConfigYAML | null;  // Parsed YAML object if successful, else null
+  } {
 
     if (!yamlString.trim()) {
       return {
@@ -78,7 +81,7 @@ export default class SimulationConfigManager {
       const parsedConfigAfterZod = schemaValidationResult.data;
 
       // validate and preprocess parsed config after Zod 
-      const validationAndPreprocessingErrors: TSimulationConfigErrors[] = this.validationAndPreprocessing(parsedConfigAfterZod);
+      const validationAndPreprocessingErrors: TSimConfigValidationError[] = this.validationAndPreprocessing(parsedConfigAfterZod);
       if (validationAndPreprocessingErrors.length) {
         return {
           errorMessage: [
@@ -104,9 +107,9 @@ export default class SimulationConfigManager {
   }
 
 
-  private validationAndPreprocessing(parsedConfig: TSimulationConfigYAML): TSimulationConfigErrors[] {
+  private validationAndPreprocessing(parsedConfig: TSimulationConfigYAML): TSimConfigValidationError[] {
     // validate and preprocess servicesInfo
-    let errorMessages: TSimulationConfigErrors[] = [];
+    let errorMessages: TSimConfigValidationError[] = [];
     errorMessages = this.servicesInfoValidator.validate(parsedConfig.servicesInfo);
     if (errorMessages.length) return errorMessages;
     errorMessages = this.servicesInfoPreprocessor.preprocess(parsedConfig.servicesInfo);
@@ -144,7 +147,7 @@ export default class SimulationConfigManager {
       );
       if (errorMessages.length) return errorMessages;
       errorMessages = this.loadSimulationPreprocessor.preprocess(
-        parsedConfig.loadSimulation, 
+        parsedConfig.loadSimulation,
         serviceInfoDefinitionContext
       );
       if (errorMessages.length) return errorMessages;

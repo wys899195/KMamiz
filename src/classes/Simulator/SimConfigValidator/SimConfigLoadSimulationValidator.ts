@@ -1,17 +1,16 @@
-import {
-
-  TSimulationConfigErrors,
-  TLoadSimulationSettings,
-  TSimulationFaults,
-  TServiceInfoDefinitionContext,
-} from "../../../entities/TSimulationConfig";
+import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
 import SimulatorUtils from "../SimulatorUtils";
+import { TSimulationFaults } from "../../../entities/simulator/TSimConfigFaultInjection";
+import { TLoadSimulationSettings } from "../../../entities/simulator/TSimConfigLoadSimulation";
+import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+
+
 export default class SimConfigLoadSimulationValidator {
 
   validate(
     loadSimulationSettings: TLoadSimulationSettings,
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
 
     // validate metrics
     const serviceMetricErrors = this.validateServiceMetrics(
@@ -43,8 +42,8 @@ export default class SimConfigLoadSimulationValidator {
   private validateServiceMetrics(
     loadSimulationSettings: TLoadSimulationSettings,
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
 
     loadSimulationSettings.serviceMetrics.forEach((namespace, nsIndex) => {
       namespace.services.forEach((service, svcIndex) => {
@@ -100,8 +99,8 @@ export default class SimConfigLoadSimulationValidator {
   private validateEndpointMetrics(
     loadSimulationSettings: TLoadSimulationSettings,
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
     const seenEndpointIds = new Set<string>();
     loadSimulationSettings.endpointMetrics.forEach((m, index) => {
       const errorLocation = `loadSimulation.endpointMetrics[${index}]`;
@@ -130,7 +129,7 @@ export default class SimConfigLoadSimulationValidator {
   private validateFaultsTargets(
     faultSettings: TSimulationFaults[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     const undefinedTargetServicesErrors = this.checkUndefinedTargetServicesInFaults(
       faultSettings,
       serviceInfoDefinitionContext
@@ -151,8 +150,8 @@ export default class SimConfigLoadSimulationValidator {
   private checkUndefinedTargetServicesInFaults(
     faultSettings: TSimulationFaults[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
 
     // Extract unique service names without version from all assigned unique service names
     const allDefinedServiceNamesWithNs = new Set(Array.from(serviceInfoDefinitionContext.allDefinedUniqueServiceNames).map(str => {
@@ -202,8 +201,8 @@ export default class SimConfigLoadSimulationValidator {
   private checkUndefinedTargetEndpointsInFaults(
     faultSettings: TSimulationFaults[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
 
     faultSettings.forEach((fault, faultIndex) => {
       if (fault.type == 'increase-error-rate' || fault.type == 'increase-latency' || fault.type == "inject-traffic") {

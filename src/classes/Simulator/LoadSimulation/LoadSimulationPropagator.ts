@@ -1,11 +1,11 @@
 import {
   TEndpointPropagationStatsForOneTimeSlot,
   TDependOnMapWithCallProbability,
-} from "../../../entities/TLoadSimulation";
+} from "../../../entities/simulator/TLoadSimulation";
 import {
   TFallbackStrategy,
   TSimulationEndpointDelay
-} from "../../../entities/TSimulationConfig";
+} from "../../../entities/simulator/TSimConfigLoadSimulation";
 import SimulatorUtils from "../SimulatorUtils";
 interface ErrorPropagationStrategy {
   /**

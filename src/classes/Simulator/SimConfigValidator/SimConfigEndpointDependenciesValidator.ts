@@ -1,17 +1,20 @@
-import {
 
-  TSimulationConfigErrors,
+import {
   TSimulationEndpointDependency,
-  TServiceInfoDefinitionContext,
-  isSelectOneOfGroupDependOnType,
-} from "../../../entities/TSimulationConfig";
+  isSelectOneOfGroupDependOnType
+} from "../../../entities/simulator/TSimConfigEndpointDependency";
+import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
+
 import SimEndpointDependencyBuilder from "../SimEndpointDependencyBuilder";
+import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+
+
 
 export default class SimConfigEndpointDependenciesValidator {
   validate(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     const undefinedEndpointIdsErrors = this.checkUndefinedEndpointIds(endpointDependenciesConfig, serviceInfoDefinitionContext);
     if (undefinedEndpointIdsErrors.length) return undefinedEndpointIdsErrors;
 
@@ -32,8 +35,8 @@ export default class SimConfigEndpointDependenciesValidator {
   private checkUndefinedEndpointIds(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
     endpointDependenciesConfig.forEach((dep, index) => {
       const sourceLocation = `endpointDependencies[${index}]`;
       if (!serviceInfoDefinitionContext.allDefinedEndpointIds.has(dep.endpointId)) {
@@ -72,8 +75,8 @@ export default class SimConfigEndpointDependenciesValidator {
   // Check for duplicate endpointIds within endpointDependencies
   private checkDuplicatedEndpointIdDefinitions(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
     const seenSourceEndpointIds = new Set<string>();
 
     // outer loop: Check for duplicate source endpointIds within endpointDependencies
@@ -127,8 +130,8 @@ export default class SimConfigEndpointDependenciesValidator {
 
   private checkOneOfCallProbabilitySum(
     endpointDependenciesConfig: TSimulationEndpointDependency[]
-  ): TSimulationConfigErrors[] {
-    const errorMessages: TSimulationConfigErrors[] = [];
+  ): TSimConfigValidationError[] {
+    const errorMessages: TSimConfigValidationError[] = [];
 
     endpointDependenciesConfig.forEach((source, sourceIndex) => {
       const sourceEPLocation = `endpointDependencies[${sourceIndex}]`;
@@ -156,9 +159,9 @@ export default class SimConfigEndpointDependenciesValidator {
   // Check for cyclic dependency issues (including self-dependencies)
   private checkCyclicEndpointDependencies(
     endpointDependencies: TSimulationEndpointDependency[],
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     // Store all detected error messages
-    const errorMessages: TSimulationConfigErrors[] = [];
+    const errorMessages: TSimConfigValidationError[] = [];
 
     // Create a dependency graph using Map,
     // where each endpoint maps to the list of endpoint IDs it depends on

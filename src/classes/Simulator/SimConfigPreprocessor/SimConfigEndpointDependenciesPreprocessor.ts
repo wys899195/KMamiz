@@ -1,16 +1,16 @@
-import {
 
-  TSimulationConfigErrors,
+import {
   TSimulationEndpointDependency,
-  TServiceInfoDefinitionContext,
-  isSelectOneOfGroupDependOnType,
-} from "../../../entities/TSimulationConfig";
+  isSelectOneOfGroupDependOnType
+} from "../../../entities/simulator/TSimConfigEndpointDependency";
+import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
+import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
 
 export default class SimConfigEndpointDependenciesPreprocessor {
   preprocess(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     const assignUniqueEndpointNameErrors = this.assignUniqueEndpointName(
       endpointDependenciesConfig,
       serviceInfoDefinitionContext
@@ -25,10 +25,10 @@ export default class SimConfigEndpointDependenciesPreprocessor {
   private assignUniqueEndpointName(
     endpointDependenciesConfig: TSimulationEndpointDependency[],
     serviceInfoDefinitionContext: TServiceInfoDefinitionContext,
-  ): TSimulationConfigErrors[] {
+  ): TSimConfigValidationError[] {
     // errorMessages is here only as a safeguard.
     // If the previous validations were correctly implemented, this error should not occur
-    const errorMessages: TSimulationConfigErrors[] = [];
+    const errorMessages: TSimConfigValidationError[] = [];
 
     endpointDependenciesConfig.forEach((source, sourceIndex) => {
       source.uniqueEndpointName =
@@ -43,7 +43,7 @@ export default class SimConfigEndpointDependenciesPreprocessor {
       source.dependOn.forEach((target, targetIndex) => {
         const targetLocation = `endpointDependencies[${sourceIndex}].dependOn[${targetIndex}]`;
         if (isSelectOneOfGroupDependOnType(target)) {
-          target.oneOf.forEach((one,oneIndex) => {
+          target.oneOf.forEach((one, oneIndex) => {
             one.uniqueEndpointName =
               serviceInfoDefinitionContext.endpointIdToUniqueNameMap.get(one.endpointId);
             if (!one.uniqueEndpointName) {
