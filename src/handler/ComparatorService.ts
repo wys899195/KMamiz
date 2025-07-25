@@ -2,17 +2,17 @@ import IRequestHandler from "../entities/TRequestHandler";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { TTaggedDiffData} from "../entities/comparator/TTaggedDiffData";
 import DataCache from "../services/DataCache";
-import GlobalSettings from "../../src/GlobalSettings";
+import GlobalSettings from "../GlobalSettings";
 import KubernetesService from "../services/KubernetesService";
 import GraphService from "./GraphService";
 import DataService from "./DataService";
 
-export default class DiffComparatorService extends IRequestHandler {
+export default class ComparatorService extends IRequestHandler {
   private graphHandler: GraphService;
   private dataHandler: DataService;
 
   constructor() {
-    super("diffComparator");
+    super("comparator");
     this.graphHandler = new GraphService();
     this.dataHandler = new DataService();
 
@@ -56,7 +56,7 @@ export default class DiffComparatorService extends IRequestHandler {
                 instabilityData: instabilityData,
                 endpointDataTypesMap: endpointDataTypeMap,
               }
-              const resFromProductionMode = await fetch(`${productionServiceBaseURL}/api/v1/diffComparator/diffData/simulator`, {
+              const resFromProductionMode = await fetch(`${productionServiceBaseURL}/api/v1/comparator/diffData/simulator`, {
                 method: "POST",
                 headers: {
                   "Content-Type": "application/json",

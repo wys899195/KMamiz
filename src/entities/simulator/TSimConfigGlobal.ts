@@ -15,7 +15,7 @@ export const systemGeneratedFieldsSuperRefine = <T extends object>() => (data: T
     if ((data as any)[field] !== undefined) {
       ctx.addIssue({
         code: "custom",
-message: `${field} is a system-generated field. It should not be provided.`,
+        message: `${field} is a system-generated field. It should not be provided.`,
         path: [field],
       });
     }
@@ -34,9 +34,14 @@ export const endpointIdSchema = z.preprocess(
 
 // version
 export const versionSchema = z.preprocess(
-  (val) => (typeof val === "number" ? val.toString() : val),
+  (val) => {
+    if (typeof val === "number") return val.toString();
+    if (val === undefined || val === null || (typeof val === "string" && val.trim() === "")) {
+      return "latest"; // Default to "latest" if version is not provided
+    }
+    return val;
+  },
   z.string()
-    .refine(s => s.trim().length > 0, { message: "version cannot be empty." })
-    .transform(s => s.trim())
+    .transform((s) => s.trim())
 );
 
