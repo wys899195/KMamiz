@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, RequestHandler  } from "express";
 import { TRequestTypeLower } from "./TRequestType";
 
 export default abstract class IRequestHandler {
@@ -7,6 +7,7 @@ export default abstract class IRequestHandler {
     method: TRequestTypeLower;
     path: string;
     handler: (req: Request, res: Response) => void;
+    middleware: RequestHandler[];
   }[] = [];
 
   constructor(identifier: string = "") {
@@ -16,9 +17,15 @@ export default abstract class IRequestHandler {
   protected addRoute(
     method: TRequestTypeLower,
     path: string,
-    handler: (req: Request, res: Response) => void
+    handler: (req: Request, res: Response) => void,
+    middleware: RequestHandler[] = [] 
   ) {
-    this.routes.push({ method, path: `/${this.identifier}${path}`, handler });
+    this.routes.push({ 
+      method, 
+      path: `/${this.identifier}${path}`, 
+      handler,
+      middleware,
+    });
   }
 
   getRoutes() {

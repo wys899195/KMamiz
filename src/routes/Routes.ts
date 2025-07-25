@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router} from "express";
 import cacheControl from "express-cache-controller";
 import GlobalSettings from "../GlobalSettings";
 import * as Handlers from "../handler";
@@ -19,10 +19,11 @@ export default class Routes {
 
   private setRoutes() {
     Logger.verbose("Registered routes:");
-    Object.values(Handlers).forEach((h) => {
-      new h().getRoutes().forEach(({ method, path, handler }) => {
+    Object.values(Handlers).forEach((HandlerClass) => {
+      const handlerInstance = new HandlerClass();
+      handlerInstance.getRoutes().forEach(({ method, path, handler, middleware }) => {
         const apiPath = `${this.apiPrefix}${path}`;
-        this.router[method](apiPath, handler);
+        this.router[method](apiPath, ...middleware, handler);
         Logger.plain.verbose(`[${method.toUpperCase()}]\t${apiPath}`);
       });
     });
