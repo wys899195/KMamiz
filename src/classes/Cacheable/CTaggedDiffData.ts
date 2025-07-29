@@ -1,5 +1,5 @@
 import { TaggedDiffDataModel } from "../../entities/schema/TaggedDiffData";
-import { TTaggedDiffData} from "../../entities/comparator/TTaggedDiffData";
+import { TTaggedDiffData} from "../../entities/TTaggedDiffData";
 import MongoOperator from "../../services/MongoOperator";
 import Logger from "../../utils/Logger";
 import { Cacheable } from "./Cacheable";

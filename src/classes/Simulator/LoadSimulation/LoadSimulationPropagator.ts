@@ -3,53 +3,12 @@ import {
   TDependOnMapWithCallProbability,
 } from "../../../entities/simulator/TLoadSimulation";
 import {
-  TFallbackStrategy,
   TSimulationEndpointDelay
 } from "../../../entities/simulator/TSimConfigLoadSimulation";
 import SimulatorUtils from "../SimulatorUtils";
-interface ErrorPropagationStrategy {
-  /**
-   * Determines whether to adjust the endpoint status based on errors from dependent endpoints for a given request
-   * @param endpointCurrentSuccess - The current success status of the endpoint for the request
-   * @param dependentEndpointsSuccessList - The success status list of dependent endpoints for the request
-   * @returns The adjusted status of the endpoint (true = success, false = failure)
-   */
-  propagateError(
-    endpointCurrentSuccess: boolean,
-    dependentEndpointsSuccessList: boolean[]
-  ): boolean;
-}
-
-
-
-
-// (default) Endpoint fail if any depend endpoints fails
-class FailIfAnyDependentFailsStrategy implements ErrorPropagationStrategy {
-  propagateError(endpointCurrentSuccess: boolean, dependentEndpointsSuccessList: boolean[]): boolean {
-    if (!endpointCurrentSuccess) return false;
-    return !dependentEndpointsSuccessList.includes(false);
-  }
-}
-
-//  Endpoint fail only if all depend endpoints fail
-class FailIfAllDependentsFailStrategy implements ErrorPropagationStrategy {
-  propagateError(endpointCurrentSuccess: boolean, dependentEndpointsSuccessList: boolean[]): boolean {
-    if (!endpointCurrentSuccess) return false; // It has failed on its own
-    if (dependentEndpointsSuccessList.length === 0) return true; // No dependency on endpoint, directly successful
-
-    const allFailed = dependentEndpointsSuccessList.every(success => !success);
-    return !allFailed;
-  }
-}
-
-// Depend endpoints errors are not propagated to the parent
-class IgnoreDependentErrorsStrategy implements ErrorPropagationStrategy {
-  propagateError(endpointCurrentSuccess: boolean, _dependentEndpointsSuccessList: boolean[]): boolean {
-    return endpointCurrentSuccess;
-  }
-}
-
-
+import { TCMetricsPerTimeSlot, } from "../../../entities/simulator/TLoadSimulation";
+import { FallbackHandler } from "./FallbackHandler";
+import { TSimulationEndpointMetric } from "../../../entities/simulator/TSimConfigLoadSimulation";
 export default class LoadSimulationPropagator {
   /*
     Explanation of NO_DEPENDENT_CALL:
@@ -70,29 +29,16 @@ export default class LoadSimulationPropagator {
   */
   private static NO_DEPENDENT_CALL: string = "NO_DEPENDENT_CALL";
 
-  private fallbackStrategyInstances: Record<TFallbackStrategy, ErrorPropagationStrategy>;
-
-  constructor() {
-    this.fallbackStrategyInstances = {
-      "failIfAnyDependentFail": new FailIfAnyDependentFailsStrategy(),
-      "failIfAllDependentFail": new FailIfAllDependentsFailStrategy(),
-      "ignoreDependentFail": new IgnoreDependentErrorsStrategy(),
-    };
-  }
-
   simulatePropagation(
+    endpointMetrics: TSimulationEndpointMetric[],
     dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
-    entryEndpointRequestCountsMapByTimeSlot: Map<string, Map<string, number>>,
-    delayWithFaultMapPerTimeSlot: Map<string, Map<string, TSimulationEndpointDelay>>,
-    errorRatePerTimeSlot: Map<string, Map<string, number>>,
-    replicaCountPerTimeSlot: Map<string, Map<string, number>>, // key: day-hour-minute, value: Map where Key is uniqueServiceName(`${serviceName}\t${namespace}\t${version}`) and Value is replica count
-    fallbackStrategyMap: Map<string, TFallbackStrategy>,
-    shouldComputeLatency: boolean
+    metricsPerTimeSlotMap: Map<string, TCMetricsPerTimeSlot>,
+    shouldComputeLatency: boolean,
   ): Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> {
     /*
      * Returns a Map representing aggregated traffic simulation results.
      *
-     * Top-level Map:
+     * Top-level Map  :
      * Key:   string - A timeSlotKey in "day-hour-minute" format (e.g., "0-10-30").
      * Value: Map<string, TEndpointPropagationStats> - Details for all endpoints active during a specific time slot.
      *
@@ -100,43 +46,31 @@ export default class LoadSimulationPropagator {
      * Key:   string - uniqueEndpointName
      * Value: TEndpointPropagationStats
      */
+    const fallbackHandler = new FallbackHandler(endpointMetrics);
+    const propagationResult: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> = new Map();
 
-    const results: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>> = new Map();
-
-    const preprocessedFallbackStrategyMap = this.preprocessFallbackStrategyMap(fallbackStrategyMap);
-
-    // Iterate through each entry point (entryPointId) configured in the simulation configuration.
-    for (const [timeSlotKey, entryPointRequestCountsMap] of entryEndpointRequestCountsMapByTimeSlot.entries()) {
-      const replicaCountMap = replicaCountPerTimeSlot.get(timeSlotKey) || new Map<string, number>();
-
+    for (const [timeSlotKey, metricsInThisTimeSlot] of metricsPerTimeSlotMap.entries()) {
       const propagationResultAtThisTimeSlot = this.simulatePropagationInSingleTimeSlot(
-        entryPointRequestCountsMap,
+        metricsInThisTimeSlot,
         dependOnMapWithCallProbability,
-        delayWithFaultMapPerTimeSlot.get(timeSlotKey) || new Map<string, TSimulationEndpointDelay>(),
-        errorRatePerTimeSlot.get(timeSlotKey) || new Map<string, number>(),
-        replicaCountMap,
-        preprocessedFallbackStrategyMap,
-        shouldComputeLatency
+        fallbackHandler,
+        shouldComputeLatency,
       )
-
-      //console.log("propagationResultAtThisTimeSlot", propagationResultAtThisTimeSlot)
-
-      results.set(timeSlotKey, propagationResultAtThisTimeSlot);
+      propagationResult.set(timeSlotKey, propagationResultAtThisTimeSlot);
     }
 
-    return results;
+    return propagationResult;
   }
 
   private simulatePropagationInSingleTimeSlot(
-    entryPointRequestCountsMap: Map<string, number>,
+    metricsInThisTimeSlot: TCMetricsPerTimeSlot,
     dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
-    endpointDelayMap: Map<string, TSimulationEndpointDelay>,
-    endpointErrorRateMap: Map<string, number>,
-    serviceReplicaCountMap: Map<string, number>,
-    fallbackStrategyMap: Map<string, ErrorPropagationStrategy>,
+    fallbackHandler:FallbackHandler,
     shouldComputeLatency: boolean
   ): Map<string, TEndpointPropagationStatsForOneTimeSlot> {
-    const endpointStats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>(); // key: uniqueEndpointName value: TEndpointPropagationStats for this endpoint
+     // key: uniqueEndpointName value: TEndpointPropagationStats for this endpoint
+    const endpointStats = new Map<string, TEndpointPropagationStatsForOneTimeSlot>();
+
 
     // for compute latency CV(// Use Welford's algorithm to calculate CV and avoid overflow issues when computing variance)
     const onlineLatencyStats = new Map<string, Map<string, { count: number; mean: number; m2: number }>>();
@@ -173,7 +107,7 @@ export default class LoadSimulationPropagator {
 
 
       const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
-      const replicaCount = serviceReplicaCountMap.get(uniqueServiceName) ?? 1;
+      const replicaCount = metricsInThisTimeSlot.getServiceReplicaCount(uniqueServiceName);
 
       // If a service has replica = 0, it always reports failure to upstream callers and does not propagate requests downstream.
       if (replicaCount === 0) {
@@ -187,9 +121,8 @@ export default class LoadSimulationPropagator {
         // Do not propagate to downstream dependencies
         return { statusMap: currentStatus, latencyMap: totalLatencyMap };
       }
-
-      const errorRate = endpointErrorRateMap.get(uniqueEndpointName) ?? 0;
-      const delay: TSimulationEndpointDelay = endpointDelayMap.get(uniqueEndpointName) || { latencyMs: 0, jitterMs: 0 };
+      const errorRate = metricsInThisTimeSlot.getEndpointErrorRate(uniqueEndpointName);
+      const delay: TSimulationEndpointDelay = metricsInThisTimeSlot.getEndpointDelay(uniqueEndpointName);
 
       // Simulate this endpointNode’s own error state
       const ownSuccessStatus = new Map<string, boolean>();
@@ -295,7 +228,7 @@ export default class LoadSimulationPropagator {
           }
 
           const parentCurrentSuccess = currentStatus.get(reqId)!;
-          const fallbackStrategy = fallbackStrategyMap.get(uniqueEndpointName) ?? new FailIfAnyDependentFailsStrategy();
+          const fallbackStrategy = fallbackHandler.getEndpointFallbackStrategy(uniqueEndpointName);
           const newParentSuccess = fallbackStrategy.propagateError(parentCurrentSuccess, dependentSuccessList);
           currentStatus.set(reqId, newParentSuccess);
 
@@ -354,6 +287,7 @@ export default class LoadSimulationPropagator {
 
 
     // Execute simulation
+    const entryPointRequestCountsMap = metricsInThisTimeSlot.getEntryPointRequestCountMap();
     for (const [entryPoint, count] of entryPointRequestCountsMap.entries()) {
       const requestIds = this.generateRequestIds(entryPoint, count);
       dfsForPropagate(entryPoint, requestIds);
@@ -381,17 +315,6 @@ export default class LoadSimulationPropagator {
     }
 
     return endpointStats;
-  }
-
-  private preprocessFallbackStrategyMap(fallbackStrategyMap: Map<string, TFallbackStrategy>): Map<string, ErrorPropagationStrategy> {
-    const result = new Map<string, ErrorPropagationStrategy>();
-
-    for (const [uniqueEndpointName, strategyName] of fallbackStrategyMap.entries()) {
-      const strategyInstance = this.fallbackStrategyInstances[strategyName];
-      result.set(uniqueEndpointName, strategyInstance);
-    }
-
-    return result;
   }
 
   private getJitteredLatency(baseLatency: number, jitterMs: number): number {

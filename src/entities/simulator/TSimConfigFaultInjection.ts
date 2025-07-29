@@ -10,11 +10,14 @@ import { z } from "zod";
 
 
 // basic settings for faults (time and target)
-const faultTimeSchema = z.object({
+const faultTimePeriodSchema = z.object({
   day: z.number().int().min(1).max(7),
   startHour: z.number().int().min(0).max(23),
   durationHours: z.number().int().min(1),
-});
+  percent: z.number().min(0).max(100).default(100),
+}).strict();
+
+const faultTimeSchema = z.array(faultTimePeriodSchema).min(1);
 
 const faultTargetServiceSchema = z.object({
   uniqueServiceName: z.string().optional(),// Users do not need to provide this.
@@ -37,7 +40,7 @@ const increaseLatencyFaultSchema = z.object({
     services: z.array(faultTargetServiceSchema).default([]),
     endpoints: z.array(faultTargetEndpointSchema).default([]),
   }).strict(),
-  time: faultTimeSchema,
+  times: faultTimeSchema,
   increaseLatencyMs: z
     .number()
     .min(0, { message: "increaseLatencyMs must be zero or greater." })
@@ -49,11 +52,11 @@ const increaseErrorRateFaultSchema = z.object({
     services: z.array(faultTargetServiceSchema).default([]),
     endpoints: z.array(faultTargetEndpointSchema).default([]),
   }).strict(),
-  time: faultTimeSchema,
+  times: faultTimeSchema,
   increaseErrorRatePercent: z
     .number()
     .refine((val) => val >= 0 && val <= 100, {
-      message: "Invalid errorRate. It must be between 0 and 100.",
+      message: "Invalid increaseErrorRatePercent. It must be between 0 and 100.",
     })
 }).strict();
 
@@ -63,7 +66,7 @@ const injectTrafficFaultSchema = z.object({
     services: z.array(faultTargetServiceSchema).default([]),
     endpoints: z.array(faultTargetEndpointSchema).default([]),
   }).strict(),
-  time: faultTimeSchema,
+  times: faultTimeSchema,
   increaseRequestCount: z
     .number()
     .int({ message: "increaseRequestCount must be an integer." })
@@ -82,7 +85,7 @@ const reduceInstanceFaultSchema = z.object({
   targets: z.object({
     services: z.array(faultTargetServiceSchema).default([]),
   }).strict(),
-  time: faultTimeSchema,
+  times: faultTimeSchema,
   reduceCount: z.number().int().min(1),
 }).strict();
 

@@ -5,7 +5,7 @@ import {
 } from "./TSimConfigGlobal";
 import {
   faultSchema,
-  
+
 } from "./TSimConfigFaultInjection";
 import { z } from "zod";
 
@@ -20,15 +20,16 @@ export const loadSimulationConfigSchema = z.object({
     .min(1, { message: "simulationDurationInDays must be at least 1." })
     .max(7, { message: "simulationDurationInDays cannot exceed 7." })
     .default(1),
-  mutationRatePercentage: z
+  overloadErrorRateIncreaseFactor: z
     .number()
-    .refine((val) => val >= 0 && val <= 100, {
-      message: "Invalid mutationRatePercentage. It must be between 0 and 100.",
-    }).default(25),
-  // TODO: May expand with additional config options such as chaosMonkeyEnabled, errorRateAmplificationFactor, etc.
+    .refine((val) => val >= 0 && val <= 10, {
+      message: "Invalid overloadErrorRateIncreaseFactor. It must be between 0 and 10.",
+    })
+    .default(3),
+  // TODO: May expand with additional config options such as chaosMonkeyEnabled, errorRateAmplificationFactor, etc^_^.
 }).strict().default({
   simulationDurationInDays: 1,
-  mutationRatePercentage: 25,
+  overloadErrorRateIncreaseFactor: 3,
 });
 
 
@@ -37,8 +38,7 @@ export const simulationServiceVersionMetricSchema = z.object({
   uniqueServiceName: z.string().optional(),// Users do not need to provide this.
   version: versionSchema,
   capacityPerReplica: z.number()
-    .int({ message: "capacityPerReplica must be an integer." })
-    .min(1, { message: "capacityPerReplica must be at least 1." })
+    .min(0.01, { message: "capacityPerReplica must be at least 0.01." })
     .default(1),
 }).strict()
   .superRefine(systemGeneratedFieldsSuperRefine());

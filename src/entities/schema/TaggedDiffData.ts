@@ -1,5 +1,5 @@
 import { Schema, SchemaDefinitionProperty, model } from "mongoose";
-import { TTaggedDiffData } from "../comparator/TTaggedDiffData";
+import { TTaggedDiffData } from "../TTaggedDiffData";
 import { TGraphData } from "../TGraphData";
 import { TServiceCoupling } from "../TServiceCoupling";
 import { TEndpointCohesion } from "../TServiceCohesion";

@@ -1,6 +1,6 @@
 import IRequestHandler from "../entities/TRequestHandler";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
-import { TTaggedDiffData} from "../entities/comparator/TTaggedDiffData";
+import { TTaggedDiffData} from "../entities/TTaggedDiffData";
 import DataCache from "../services/DataCache";
 import GlobalSettings from "../GlobalSettings";
 import KubernetesService from "../services/KubernetesService";
