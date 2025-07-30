@@ -26,9 +26,9 @@ export default class SimConfigLoadSimulationValidator {
     if (metricErrors.length) return metricErrors;
 
     // validate faults
-    if (loadSimulationSettings.faults) {
+    if (loadSimulationSettings.faultInjection) {
       const faultsTargetsErrors = this.validateFaultsTargets(
-        loadSimulationSettings.faults, serviceInfoDefinitionContext
+        loadSimulationSettings.faultInjection, serviceInfoDefinitionContext
       )
       if (faultsTargetsErrors.length) return faultsTargetsErrors;
     }

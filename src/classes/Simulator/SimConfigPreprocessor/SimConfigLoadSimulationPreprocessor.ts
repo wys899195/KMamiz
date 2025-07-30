@@ -25,8 +25,8 @@ export default class SimConfigLoadSimulationPreprocessor {
     this.addDefaultMetricsForMissingEndpointsInPlace(loadSimulationSettings, serviceInfoDefinitionContext);
 
     // preprocess faults
-    if (loadSimulationSettings.faults) {
-      this.preprocessFaultTargets(loadSimulationSettings.faults, serviceInfoDefinitionContext);
+    if (loadSimulationSettings.faultInjection) {
+      this.preprocessFaultTargets(loadSimulationSettings.faultInjection, serviceInfoDefinitionContext);
     }
 
     // If no errors found, return an empty array.

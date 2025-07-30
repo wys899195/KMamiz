@@ -92,7 +92,7 @@ export default class FaultInjector {
     const allEndpointFaultRecords = new Map<string, Map<string, EndpointFault>>();
     const allServiceFaultRecords = new Map<string, Map<string, ServiceFault>>();
 
-    if (!loadSimulationSettings.faults) return { allEndpointFaultRecords, allServiceFaultRecords }
+    if (!loadSimulationSettings.faultInjection) return { allEndpointFaultRecords, allServiceFaultRecords }
 
     const simulationDurationInDays = loadSimulationSettings.config.simulationDurationInDays;
 
@@ -105,7 +105,7 @@ export default class FaultInjector {
       }
     }
 
-    loadSimulationSettings.faults.forEach(fault => {
+    loadSimulationSettings.faultInjection.forEach(fault => {
       /*
         建立該 fault 的時間段機率 map（key: timeSlot, value: array of probabilities）
         若同一筆故障設定中，管理員設了多個時間段，但不小心出現時間重疊情況，則機率會重疊
@@ -119,11 +119,11 @@ export default class FaultInjector {
             => {"0-0-0": 0.8, "0-0-1": 0.8, "0-0-2": 0.92, "0-0-3": 0.6}
       */
       const rawProbGroupMap = new Map<string, number[]>();
-      fault.times.forEach(time => {
-        const percent = (time.percent ?? 100) / 100;
-        for (let h = 0; h < time.durationHours; h++) {
-          const currentHour = time.startHour + h;
-          const actualDay = time.day + Math.floor(currentHour / 24) - 1;
+      fault.timePeriods.forEach(timePeriod => {
+        const percent = (timePeriod.probabilityPercent ?? 100) / 100;
+        for (let h = 0; h < timePeriod.durationHours; h++) {
+          const currentHour = timePeriod.startTime.hour + h;
+          const actualDay = timePeriod.startTime.day + Math.floor(currentHour / 24) - 1;
           const actualHour = currentHour % 24;
           const timeSlotKey = `${actualDay}-${actualHour}-0`;
           if (!rawProbGroupMap.has(timeSlotKey)) {
@@ -205,9 +205,9 @@ export default class FaultInjector {
 }
 //測試用
 function printNestedFaultRecords(
-    faultRecords: Map<string, Map<string, EndpointFault | ServiceFault>>,
-    isEndpointFault: boolean
-  ) {
+  faultRecords: Map<string, Map<string, EndpointFault | ServiceFault>>,
+  isEndpointFault: boolean
+) {
   const result: Record<string, Record<string, any>> = {};
 
   for (const [timeSlotKey, innerMap] of faultRecords.entries()) {

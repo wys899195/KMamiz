@@ -96,7 +96,7 @@ export const loadSimulationSchema = z.object({
   config: loadSimulationConfigSchema,
   serviceMetrics: z.array(simulationNamespaceServiceMetricsSchema),
   endpointMetrics: z.array(simulationEndpointMetricSchema),
-  faults: z.array(faultSchema).optional(),
+  faultInjection: z.array(faultSchema).optional(),
 }).strict();
 
 

@@ -10,14 +10,16 @@ import { z } from "zod";
 
 
 // basic settings for faults (time and target)
-const faultTimePeriodSchema = z.object({
-  day: z.number().int().min(1).max(7),
-  startHour: z.number().int().min(0).max(23),
-  durationHours: z.number().int().min(1),
-  percent: z.number().min(0).max(100).default(100),
+const faultInjectionPeriodSchema = z.object({
+  startTime: z.object({
+    day: z.number().int().min(1).max(7),
+    hour: z.number().int().min(0).max(23),
+  }), // Fault injection start time
+  durationHours: z.number().int().min(1), //Fault injection duration
+  probabilityPercent: z.number().min(0).max(100).default(100), // Probability of fault occurrence during injection period
 }).strict();
 
-const faultTimeSchema = z.array(faultTimePeriodSchema).min(1);
+const faultTimeSchema = z.array(faultInjectionPeriodSchema).min(1);
 
 const faultTargetServiceSchema = z.object({
   uniqueServiceName: z.string().optional(),// Users do not need to provide this.
@@ -40,7 +42,7 @@ const increaseLatencyFaultSchema = z.object({
     services: z.array(faultTargetServiceSchema).default([]),
     endpoints: z.array(faultTargetEndpointSchema).default([]),
   }).strict(),
-  times: faultTimeSchema,
+  timePeriods: faultTimeSchema,
   increaseLatencyMs: z
     .number()
     .min(0, { message: "increaseLatencyMs must be zero or greater." })
@@ -52,7 +54,7 @@ const increaseErrorRateFaultSchema = z.object({
     services: z.array(faultTargetServiceSchema).default([]),
     endpoints: z.array(faultTargetEndpointSchema).default([]),
   }).strict(),
-  times: faultTimeSchema,
+  timePeriods: faultTimeSchema,
   increaseErrorRatePercent: z
     .number()
     .refine((val) => val >= 0 && val <= 100, {
@@ -66,7 +68,7 @@ const injectTrafficFaultSchema = z.object({
     services: z.array(faultTargetServiceSchema).default([]),
     endpoints: z.array(faultTargetEndpointSchema).default([]),
   }).strict(),
-  times: faultTimeSchema,
+  timePeriods: faultTimeSchema,
   increaseRequestCount: z
     .number()
     .int({ message: "increaseRequestCount must be an integer." })
@@ -85,7 +87,7 @@ const reduceInstanceFaultSchema = z.object({
   targets: z.object({
     services: z.array(faultTargetServiceSchema).default([]),
   }).strict(),
-  times: faultTimeSchema,
+  timePeriods: faultTimeSchema,
   reduceCount: z.number().int().min(1),
 }).strict();
 
