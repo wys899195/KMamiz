@@ -7,7 +7,6 @@ import {
 } from "../../../entities/simulator/TSimConfigLoadSimulation";
 import {
   TBaseDataWithResponses,
-  TEndpointPropagationStatsForOneTimeSlot,
   TDependOnMapWithCallProbability
 } from "../../../entities/simulator/TLoadSimulation";
 import { TCMetricsPerTimeSlot } from "../../../entities/simulator/TLoadSimulation";
@@ -17,7 +16,7 @@ import { TCombinedRealtimeData } from "../../../entities/TCombinedRealtimeData";
 import LoadSimulationDataGenerator from "./LoadSimulationDataGenerator";
 import LoadSimulationPropagator from "./LoadSimulationPropagator";
 import FaultInjector from "./FaultInjector";
-import SimulatorUtils from "../SimulatorUtils";
+import OverloadErrorRateEstimator from "./OverloadErrorRateEstimator";
 
 export default class LoadSimulationHandler {
   private static instance?: LoadSimulationHandler;
@@ -26,11 +25,13 @@ export default class LoadSimulationHandler {
   private dataGenerator: LoadSimulationDataGenerator;
   private propagator: LoadSimulationPropagator;
   private faultInjector: FaultInjector;
+  private overloadErrorRateEstimator: OverloadErrorRateEstimator;
 
   private constructor() {
     this.dataGenerator = new LoadSimulationDataGenerator();
     this.propagator = new LoadSimulationPropagator();
     this.faultInjector = new FaultInjector();
+    this.overloadErrorRateEstimator = new OverloadErrorRateEstimator();
   }
 
   generateCombinedRealtimeDataMap(
@@ -85,12 +86,12 @@ export default class LoadSimulationHandler {
       Estimate overload level for each service based on expected incoming traffic, the number of replicas, and per-replica throughput capacity  
       Then combine with base error rate to calculate the adjusted error rate per endpoint, per timeSlot
     */
-    const serviceReceivedRequestCount = this.computeRequestCountsPerServicePerTimeSlot(propagationResultsWithBasicError);
+    this.overloadErrorRateEstimator.adjustedErrorRateByOverload(
+      loadSimulationSettings.config.overloadErrorRateIncreaseFactor,
+      propagationResultsWithBasicError,
+      metricsPerTimeSlotMap
+    )
 
-    this.AdjustedErrorRateByOverload(
-      metricsPerTimeSlotMap,
-      serviceReceivedRequestCount
-    );
 
     // console.log("metricsPerTimeSlotMap after AdjustedErrorRateByOverload", metricsPerTimeSlotMap);
 
@@ -336,130 +337,6 @@ export default class LoadSimulationHandler {
     }
 
     return result;
-  }
-
-
-  private computeRequestCountsPerServicePerTimeSlot(
-    propagationResultsWithBasicError: Map<string, Map<string, TEndpointPropagationStatsForOneTimeSlot>>
-  ): Map<string, Map<string, number>> {
-    /*
-     * This Map aggregates the total request counts for each service at specific time intervals.
-     *
-     * Top-level Map:
-     * Key:   string - A time slot key in "day-hour-minute" format (e.g., "0-10-30"), representing the start of a specific time interval.
-     * Value: Map<string, number> - Total request counts for each service during this time interval.
-     *
-     * Inner Map (Value of Top-level Map):
-     * Key:   string - uniqueServiceName.
-     * Value: number - The aggregated request count for that specific service during the time interval.
-     */
-
-    // Used to store the final statistical results. The key is the timestamp and the value 
-    // is the number of requests for each service at that timestamp.
-    const serviceRequestCountsPerTimeSlot = new Map<string, Map<string, number>>();
-
-    for (const [timeSlotKey, timeSlotStats] of propagationResultsWithBasicError.entries()) {
-
-      if (!serviceRequestCountsPerTimeSlot.has(timeSlotKey)) {
-        serviceRequestCountsPerTimeSlot.set(timeSlotKey, new Map());
-      }
-
-      // Retrieve the map of services and their request counts for the current time slot
-      const serviceMap = serviceRequestCountsPerTimeSlot.get(timeSlotKey)!;
-
-      // timeSlotStats contains statistics for all endpoints during this time slot
-      for (const [uniqueEndpointName, stats] of timeSlotStats.entries()) {
-        // Extract the service ID from the endpoint ID
-        const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
-
-        // Get the current aggregated count for this service, defaulting to 0 if none exists
-        const prevCount = serviceMap.get(uniqueServiceName) || 0;
-
-        // Add the current endpoint's request count to the service's total count
-        serviceMap.set(uniqueServiceName, prevCount + stats.requestCount);
-      }
-    }
-
-    return serviceRequestCountsPerTimeSlot;
-  }
-
-  private AdjustedErrorRateByOverload(
-    metricsPerTimeSlotMap: Map<string, TCMetricsPerTimeSlot>,
-    serviceReceivedRequestCount: Map<string, Map<string, number>>,
-  ) {
-    for (const [timeSlotKey, serviceCounts] of serviceReceivedRequestCount.entries()) {
-      const metricsInThisTimeSlot = metricsPerTimeSlotMap.get(timeSlotKey);
-      if (metricsInThisTimeSlot) {
-        const errorRateMapThisSlot = metricsInThisTimeSlot.getEndpointErrorRateMap();
-
-        for (const [uniqueEndpointName, baseErrorRate] of errorRateMapThisSlot.entries()) {
-          const uniqueServiceName = SimulatorUtils.extractUniqueServiceNameFromEndpointName(uniqueEndpointName);
-
-          // Get request count for the service in this hour
-          const requestCountInThisHour = serviceCounts.get(uniqueServiceName) ?? 0;
-          const requestCountPerSecond = requestCountInThisHour / 3600;
-
-          const replicaCount = metricsInThisTimeSlot.getServiceReplicaCount(uniqueServiceName);
-          const replicaMaxRPS = metricsInThisTimeSlot.getServiceCapacityPerReplica(uniqueServiceName);
-
-
-          // console.log("----------")
-          // console.log("timeSlotKey=", timeSlotKey)
-          // console.log("uniqueEndpointName=", uniqueEndpointName)
-          // console.log("requestCountInThisHour=", requestCountInThisHour)
-          console.log(replicaMaxRPS)
-          const adjustedErrorRate = this.estimateErrorRateWithServiceOverload({
-            requestCountPerSecond,
-            replicaCount,
-            replicaMaxRPS,
-            baseErrorRate
-          });
-
-          metricsInThisTimeSlot.setEndpointErrorRate(uniqueEndpointName, adjustedErrorRate);
-        }
-
-      }
-    }
-  }
-
-  private estimateErrorRateWithServiceOverload(data: {
-    requestCountPerSecond: number,
-    replicaCount: number,
-    replicaMaxRPS: number,
-    baseErrorRate: number,
-  }): number {
-    const capacity = data.replicaCount * data.replicaMaxRPS; // Total system processing capacity (requests per second)
-
-    if (capacity === 0) {
-      // If there's no capacity, the service cannot handle any request.
-      // Consider this as a full failure (100% error rate).
-      return 1;
-    }
-
-    const utilization = data.requestCountPerSecond / capacity; // System utilization (load ratio)
-
-
-    // console.log("requestCountPerSecond", data.requestCountPerSecond)
-    // console.log(` replicas: ${data.replicaCount}`)
-    // console.log(` capacity: ${capacity}`)
-    // console.log(` utilization: ${utilization}`)
-    if (utilization <= 1) {
-      // When the system is not overloaded, the error rate remains at the baseline error rate.
-      return data.baseErrorRate;
-    }
-
-    const overloadFactor = utilization - 1; // Overload ratio (the portion where utilization exceeds 1)
-
-    // Additional error rate caused by overload, calculated using an exponential model.
-    // The coefficient 3 in the exponential function controls how quickly the error rate increases.
-    // (TODO)This is a temporary value; a more realistic model will be tested and applied in the future.
-    const serviceOverloadErrorRate = 1 - Math.exp(-3 * overloadFactor);
-
-    // Total error rate = base error rate + remaining available error rate * overload-induced error rate
-    // (Overload-induced errors only affect requests that were originally successful, hence (1 - baseErrorRate) is used)
-    const totalErrorRate = data.baseErrorRate + (1 - data.baseErrorRate) * serviceOverloadErrorRate;
-
-    return Math.min(1, totalErrorRate);
   }
 
 }
