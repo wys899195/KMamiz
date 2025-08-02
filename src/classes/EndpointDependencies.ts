@@ -144,6 +144,7 @@ export class EndpointDependencies {
           ...d.endpoint,
           labelName,
         },
+        isDependedByExternal: d.isDependedByExternal,
         lastUsageTimestamp: d.lastUsageTimestamp,
         dependingOn,
         dependingBy,
@@ -247,7 +248,7 @@ export class EndpointDependencies {
               existLinks.add(`${id}\t${depId}`);
             }
           });
-        if (e.dependingBy.length === 0) {
+        if (e.isDependedByExternal) {
           if (!existLinks.has(`null\t${id}`)) {
             links.push({
               source: "null",

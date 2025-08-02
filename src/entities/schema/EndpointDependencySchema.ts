@@ -19,6 +19,7 @@ export const EndpointInfoSchema: SchemaDefinitionProperty<TEndpointInfo> = {
 export const EndpointDependencySchema = new Schema<TEndpointDependency>({
   endpoint: EndpointInfoSchema,
   lastUsageTimestamp: { type: Number, required: true },
+  isDependedByExternal: {type: Boolean, required: true},
   dependingOn: [
     {
       endpoint: EndpointInfoSchema,

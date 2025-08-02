@@ -4143,6 +4143,7 @@ const MockEndpointDependenciesPDAS = [
       timestamp:1646208338224.823,
     },
     lastUsageTimestamp:1646208338227.724,
+    isDependedByExternal:false,
     dependingBy: [
       {
         endpoint: {
@@ -4183,6 +4184,7 @@ const MockEndpointDependenciesPDAS = [
       timestamp:1646208338227.724,
     },
     lastUsageTimestamp:1646208338227.724,
+    isDependedByExternal:false,
     dependingBy: [
       {
         endpoint: {
@@ -4223,6 +4225,7 @@ const MockEndpointDependenciesPDAS = [
       timestamp:1646208338231.628,
     },
     lastUsageTimestamp:1646208338231.628,
+    isDependedByExternal:false,
     dependingBy: [
       {
         endpoint: {
@@ -4263,6 +4266,7 @@ const MockEndpointDependenciesPDAS = [
       timestamp:1646208338216.165,
     },
     lastUsageTimestamp: 1646208338216.165,
+    isDependedByExternal:true,
     dependingBy: [],
     dependingOn: [
       {

@@ -1,4 +1,4 @@
-import { TSimulationNamespace } from "../../entities/simulator/TSimConfigServiceInfo"; 
+import { TSimulationNamespace } from "../../entities/simulator/TSimConfigServiceInfo";
 import {
   TSimulationEndpointDependency,
   isSelectOneOfGroupDependOnType,
@@ -33,7 +33,8 @@ export default class SimEndpointDependencyBuilder {
     const {
       dependOnMap,
       dependByMap,
-      dependOnMapWithCallProbability
+      dependOnMapWithCallProbability,
+      externalDependIds
     } = this.buildDependencyMaps(parsedConfig.endpointDependencies);
 
     const endpointDependencies = this.createEndpointDependencies(
@@ -41,6 +42,7 @@ export default class SimEndpointDependencyBuilder {
       endpointInfoSet,
       dependOnMap,
       dependByMap,
+      externalDependIds,
     );
 
     return {
@@ -78,17 +80,23 @@ export default class SimEndpointDependencyBuilder {
   }
 
   private buildDependencyMaps(dependencies: TSimulationEndpointDependency[]): {
-    dependOnMap: Map<string, Set<string>>;
+    dependOnMap: Map<string, Set<string>>,
     dependOnMapWithCallProbability: TDependOnMapWithCallProbability,
-    dependByMap: Map<string, Set<string>>;
-
+    dependByMap: Map<string, Set<string>>,
+    externalDependIds: Set<string>,
   } {
     const dependOnMap = new Map<string, Set<string>>();
     const dependByMap = new Map<string, Set<string>>();
     const dependOnMapWithCallProbability: TDependOnMapWithCallProbability = new Map();
+    const externalDependIds = new Set<string>();
 
     dependencies.forEach(dep => {
       const sourceEndpoint = dep.uniqueEndpointName!;
+
+      if (dep.isExternal) {
+        externalDependIds.add(sourceEndpoint);
+      }
+
       const dependOnEndpointList = dep.dependOn || [];
 
       let dependOnSet = dependOnMap.get(sourceEndpoint);
@@ -152,7 +160,8 @@ export default class SimEndpointDependencyBuilder {
     return {
       dependOnMap,
       dependByMap,
-      dependOnMapWithCallProbability
+      dependOnMapWithCallProbability,
+      externalDependIds, 
     };
   }
 
@@ -211,6 +220,7 @@ export default class SimEndpointDependencyBuilder {
     endpointInfoSet: Map<string, TEndpointInfo>,
     dependOnMap: Map<string, Set<string>>,
     dependByMap: Map<string, Set<string>>,
+    externalDependIds: Set<string>,
   ): TEndpointDependency[] {
     /*
       Use BFS starting from each endpoint to find all the 'endpoints it depends on' and the 'endpoints that depend on it', 
@@ -268,6 +278,7 @@ export default class SimEndpointDependencyBuilder {
       result.push({
         endpoint: endpointInfo,
         lastUsageTimestamp: convertDate,
+        isDependedByExternal: externalDependIds.has(uniqueEndpointName),
         dependingOn,
         dependingBy,
       });

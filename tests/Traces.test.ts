@@ -16,6 +16,7 @@ describe("Traces", () => {
 
   it("converts to endpoint dependencies", () => {
     const dependencies = trace.toEndpointDependencies();
+    console.log("dependencies.toJSON()=",dependencies.toJSON())
     expect(dependencies.toJSON()).toEqual(MockEndpointDependenciesPDAS);
   });
 

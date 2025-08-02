@@ -32,6 +32,7 @@ const dependOnSchema = z.union([normalDependOnSchema, selectOneOfGroupDependOnSc
 // Endpoint dependency main schema
 export const simulationEndpointDependencySchema = z.object({
   uniqueEndpointName: z.string().optional(),// Users do not need to provide this.
+  isExternal: z.boolean().default(false), // Whether the endpoint is allowed to be called externally
   endpointId: endpointIdSchema,
   dependOn: z.array(dependOnSchema),
 }).strict()

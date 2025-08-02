@@ -5,6 +5,7 @@ export type TEndpointDependency = {
   _id?: Types.ObjectId;
   endpoint: TEndpointInfo;
   lastUsageTimestamp: number; //milliseconds
+  isDependedByExternal: boolean;
   dependingOn: {
     endpoint: TEndpointInfo;
     distance: number;

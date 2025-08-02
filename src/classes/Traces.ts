@@ -182,8 +182,9 @@ export class Traces {
         return {
           endpoint: Traces.ToEndpointInfo(span),
           lastUsageTimestamp: 0, // unset
-          dependingBy:dependingBy,
-          dependingOn:dependingOn,
+          isDependedByExternal: dependingBy.length === 0 ? true : false,
+          dependingBy: dependingBy,
+          dependingOn: dependingOn,
         };
       }
     );
@@ -203,7 +204,7 @@ export class Traces {
       dependency.dependingOn.forEach((dep) => updateEndpointLastTimestampMap(dep.endpoint));
     });
     dependencies.forEach((dependency) => {
-      dependency.lastUsageTimestamp = endpointLastTimestampMap.get(dependency.endpoint.uniqueEndpointName) ?? 0; 
+      dependency.lastUsageTimestamp = endpointLastTimestampMap.get(dependency.endpoint.uniqueEndpointName) ?? 0;
     });
 
     return new EndpointDependencies(dependencies);
@@ -235,7 +236,7 @@ export class Traces {
       method: trace.tags["http.method"] as TRequestTypeUpper,
       uniqueServiceName,
       uniqueEndpointName: `${uniqueServiceName}\t${trace.tags["http.method"]}\t${trace.tags["http.url"]}`,
-      timestamp:trace.timestamp / 1000, 
+      timestamp: trace.timestamp / 1000,
     };
   }
 }

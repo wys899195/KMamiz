@@ -216,6 +216,7 @@ export default class SimConfigGenerator {
       result.push({
         endpointId: fromId,
         dependOn,
+        isExternal: dep.isDependedByExternal
       });
     });
 
