@@ -1,8 +1,8 @@
-import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
+import { TServiceInfoDefinitionContext } from "../../entities/TServiceInfoDefinitionContext";
 import SimulatorUtils from "../SimulatorUtils";
-import { TSimulationFaults } from "../../../entities/simulator/TSimConfigFaultInjection";
-import { TLoadSimulationSettings } from "../../../entities/simulator/TSimConfigLoadSimulation";
-import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+import { TSimulationFaults } from "../../entities/TSimConfigFaultInjection";
+import { TLoadSimulationSettings } from "../../entities/TSimConfigLoadSimulation";
+import { TSimConfigValidationError } from "../../entities/TSimConfigValidationError";
 
 
 export default class SimConfigLoadSimulationValidator {

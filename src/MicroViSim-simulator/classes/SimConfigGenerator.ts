@@ -1,17 +1,17 @@
 
 import yaml from "js-yaml";
 
-import { TSimulationNamespace, TSimulationEndpoint, TSimulationResponseBody } from "../../entities/simulator/TSimConfigServiceInfo";
-import { TSimulationEndpointDependency, TSimulationDependOn } from "../../entities/simulator/TSimConfigEndpointDependency";
-import { TSimulationConfigYAML } from "../../entities/simulator/TSimConfig";
+import { TSimulationNamespace, TSimulationEndpoint, TSimulationResponseBody } from "../entities/TSimConfigServiceInfo";
+import { TSimulationEndpointDependency, TSimulationDependOn } from "../entities/TSimConfigEndpointDependency";
+import { TSimulationConfigYAML } from "../entities/TSimConfig";
 
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointDependency } from "../../entities/TEndpointDependency";
 import { TEndpointDataType } from "../../entities/TEndpointDataType";
 
-import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
-import { CEndpointDataType } from "../Cacheable/CEndpointDataType";
-import { CReplicas } from "../Cacheable/CReplicas";
+import { CEndpointDependencies } from "../../classes/Cacheable/CEndpointDependencies";
+import { CEndpointDataType } from "../../classes/Cacheable/CEndpointDataType";
+import { CReplicas } from "../../classes/Cacheable/CReplicas";
 
 import DataCache from "../../services/DataCache";
 

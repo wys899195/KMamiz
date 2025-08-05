@@ -2,9 +2,9 @@
 import {
   TSimulationEndpointDependency,
   isSelectOneOfGroupDependOnType
-} from "../../../entities/simulator/TSimConfigEndpointDependency";
-import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
-import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+} from "../../entities/TSimConfigEndpointDependency";
+import { TServiceInfoDefinitionContext } from "../../entities/TServiceInfoDefinitionContext";
+import { TSimConfigValidationError } from "../../entities/TSimConfigValidationError";
 
 export default class SimConfigEndpointDependenciesPreprocessor {
   preprocess(

@@ -1,13 +1,13 @@
 import {
   TSimulationConfigYAML,
   simulationConfigYAMLSchema,
-} from "../../entities/simulator/TSimConfig";
-import { TSimulationNamespace } from "../../entities/simulator/TSimConfigServiceInfo";
-import { TServiceInfoDefinitionContext } from "../../entities/simulator/TServiceInfoDefinitionContext";
+} from "../entities/TSimConfig";
+import { TSimulationNamespace } from "../entities/TSimConfigServiceInfo";
+import { TServiceInfoDefinitionContext } from "../entities/TServiceInfoDefinitionContext";
 
 import SimConfigGenerator from "./SimConfigGenerator";
 import yaml from "js-yaml";
-import { TSimConfigValidationError } from "../../entities/simulator/TSimConfigValidationError";
+import { TSimConfigValidationError } from "../entities/TSimConfigValidationError";
 
 import SimConfigServicesInfoValidator from "./SimConfigValidator/SimConfigServicesInfoValidator";
 import SimConfigEndpointDependenciesValidator from "./SimConfigValidator/SimConfigEndpointDependenciesValidator";

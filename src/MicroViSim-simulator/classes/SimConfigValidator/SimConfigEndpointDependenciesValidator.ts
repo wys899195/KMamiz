@@ -2,11 +2,11 @@
 import {
   TSimulationEndpointDependency,
   isSelectOneOfGroupDependOnType
-} from "../../../entities/simulator/TSimConfigEndpointDependency";
-import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
+} from "../../entities/TSimConfigEndpointDependency";
+import { TServiceInfoDefinitionContext } from "../../entities/TServiceInfoDefinitionContext";
 
 import SimEndpointDependencyBuilder from "../SimEndpointDependencyBuilder";
-import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+import { TSimConfigValidationError } from "../../entities/TSimConfigValidationError";
 
 
 

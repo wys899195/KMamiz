@@ -1,14 +1,14 @@
 import {
   TEndpointPropagationStatsForOneTimeSlot,
   TDependOnMapWithCallProbability,
-} from "../../../entities/simulator/TLoadSimulation";
+} from "../../entities/TLoadSimulation";
 import {
   TSimulationEndpointDelay
-} from "../../../entities/simulator/TSimConfigLoadSimulation";
+} from "../../entities/TSimConfigLoadSimulation";
 import SimulatorUtils from "../SimulatorUtils";
-import { TCMetricsPerTimeSlot, } from "../../../entities/simulator/TLoadSimulation";
+import { TCMetricsPerTimeSlot, } from "../../entities/TLoadSimulation";
 import { FallbackHandler } from "./FallbackHandler";
-import { TSimulationEndpointMetric } from "../../../entities/simulator/TSimConfigLoadSimulation";
+import { TSimulationEndpointMetric } from "../../entities/TSimConfigLoadSimulation";
 export default class LoadSimulationPropagator {
   /*
     Explanation of NO_DEPENDENT_CALL:

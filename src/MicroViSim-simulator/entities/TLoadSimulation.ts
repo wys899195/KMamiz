@@ -1,4 +1,4 @@
-import { TRealtimeData } from "../TRealtimeData";
+import { TRealtimeData } from "../../entities/TRealtimeData";
 import { TSimulationEndpointDatatype } from "./TSimConfigServiceInfo";
 import { TSimulationEndpointDelay } from "./TSimConfigLoadSimulation";
 

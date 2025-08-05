@@ -4,7 +4,7 @@ import {
 import {
   TBaseDataWithResponses,
   TEndpointPropagationStatsForOneTimeSlot,
-} from "../../../entities/simulator/TLoadSimulation";
+} from "../../entities/TLoadSimulation";
 
 export default class LoadSimulationDataGenerator {
 

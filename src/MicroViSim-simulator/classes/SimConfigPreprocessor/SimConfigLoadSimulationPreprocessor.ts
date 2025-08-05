@@ -1,11 +1,11 @@
-import { TSimulationFaults } from "../../../entities/simulator/TSimConfigFaultInjection";
+import { TSimulationFaults } from "../../entities/TSimConfigFaultInjection";
 import {
   TFallbackStrategy,
   TLoadSimulationSettings,
   TSimulationEndpointMetric,
-} from "../../../entities/simulator/TSimConfigLoadSimulation";
-import { TServiceInfoDefinitionContext } from "../../../entities/simulator/TServiceInfoDefinitionContext";
-import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+} from "../../entities/TSimConfigLoadSimulation";
+import { TServiceInfoDefinitionContext } from "../../entities/TServiceInfoDefinitionContext";
+import { TSimConfigValidationError } from "../../entities/TSimConfigValidationError";
 import SimulatorUtils from "../SimulatorUtils";
 
 export default class SimConfigLoadSimulationPreprocessor {

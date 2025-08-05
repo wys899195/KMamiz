@@ -1,6 +1,6 @@
-import { TSimulationNamespace } from "../../../entities/simulator/TSimConfigServiceInfo";
+import { TSimulationNamespace } from "../../entities/TSimConfigServiceInfo";
 import SimulatorUtils from "../SimulatorUtils";
-import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+import { TSimConfigValidationError } from "../../entities/TSimConfigValidationError";
 
 
 type BodyInputType = "sample" | "typeDefinition" | "empty" | "unknown";

@@ -1,5 +1,5 @@
-import { TLoadSimulationSettings } from "../../../entities/simulator/TSimConfigLoadSimulation";
-import { TCMetricsPerTimeSlot } from "../../../entities/simulator/TLoadSimulation";
+import { TLoadSimulationSettings } from "../../entities/TSimConfigLoadSimulation";
+import { TCMetricsPerTimeSlot } from "../../entities/TLoadSimulation";
 export default class FaultInjector {
 
   injectFault(

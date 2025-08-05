@@ -1,7 +1,7 @@
 import {
   TEndpointPropagationStatsForOneTimeSlot,
-} from "../../../entities/simulator/TLoadSimulation";
-import { TCMetricsPerTimeSlot } from "../../../entities/simulator/TLoadSimulation";
+} from "../../entities/TLoadSimulation";
+import { TCMetricsPerTimeSlot } from "../../entities/TLoadSimulation";
 import SimulatorUtils from "../SimulatorUtils";
 
 export default class OverloadErrorRateEstimator {

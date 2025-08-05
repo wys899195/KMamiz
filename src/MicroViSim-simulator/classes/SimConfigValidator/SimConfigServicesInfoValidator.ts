@@ -1,5 +1,5 @@
-import { TSimulationNamespace } from "../../../entities/simulator/TSimConfigServiceInfo";
-import { TSimConfigValidationError } from "../../../entities/simulator/TSimConfigValidationError";
+import { TSimulationNamespace } from "../../entities/TSimConfigServiceInfo";
+import { TSimConfigValidationError } from "../../entities/TSimConfigValidationError";
 
 import SimulatorUtils from "../SimulatorUtils";
 

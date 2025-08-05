@@ -1,15 +1,15 @@
-import { TSimulationNamespace } from "../../entities/simulator/TSimConfigServiceInfo";
+import { TSimulationNamespace } from "../entities/TSimConfigServiceInfo";
 import {
   TSimulationEndpointDependency,
   isSelectOneOfGroupDependOnType,
-} from "../../entities/simulator/TSimConfigEndpointDependency";
-import { TSimulationConfigYAML } from "../../entities/simulator/TSimConfig";
+} from "../entities/TSimConfigEndpointDependency";
+import { TSimulationConfigYAML } from "../entities/TSimConfig";
 import { TRequestTypeUpper } from '../../entities/TRequestType'
 import { TEndpointDependency, TEndpointInfo } from "../../entities/TEndpointDependency";
 import {
   TDependOnMapWithCallProbability,
   TTargetWithCallProbability,
-} from "../../entities/simulator/TLoadSimulation";
+} from "../entities/TLoadSimulation";
 
 export default class SimEndpointDependencyBuilder {
   private static instance?: SimEndpointDependencyBuilder;

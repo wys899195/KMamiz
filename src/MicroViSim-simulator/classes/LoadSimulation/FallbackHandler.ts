@@ -1,7 +1,7 @@
 import {
   TFallbackStrategy,
   TSimulationEndpointMetric
-} from "../../../entities/simulator/TSimConfigLoadSimulation";
+} from "../../entities/TSimConfigLoadSimulation";
 
 export class FallbackHandler {
   private _fallbackStrategyInstances: Record<TFallbackStrategy, IErrorPropagationStrategy>;

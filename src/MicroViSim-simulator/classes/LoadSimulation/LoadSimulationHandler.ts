@@ -4,12 +4,12 @@ import {
   TLoadSimulationSettings,
   TLoadSimulationConfig,
   TSimulationEndpointDelay,
-} from "../../../entities/simulator/TSimConfigLoadSimulation";
+} from "../../entities/TSimConfigLoadSimulation";
 import {
   TBaseDataWithResponses,
   TDependOnMapWithCallProbability
-} from "../../../entities/simulator/TLoadSimulation";
-import { TCMetricsPerTimeSlot } from "../../../entities/simulator/TLoadSimulation";
+} from "../../entities/TLoadSimulation";
+import { TCMetricsPerTimeSlot } from "../../entities/TLoadSimulation";
 import { TReplicaCount } from "../../../entities/TReplicaCount";
 import { TCombinedRealtimeData } from "../../../entities/TCombinedRealtimeData";
 

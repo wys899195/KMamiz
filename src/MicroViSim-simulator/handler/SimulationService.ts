@@ -1,8 +1,8 @@
-import IRequestHandler from "../entities/TRequestHandler";
-import Simulator from "../classes/Simulator/Simulator";
-import SimulationConfigManager from "../classes/Simulator/SimulationConfigManager";
-import ServiceOperator from "../services/ServiceOperator";
-import ImportExportHandler from "../services/ImportExportHandler";
+import IRequestHandler from "../../entities/TRequestHandler";
+import Simulator from "../classes/Simulator";
+import SimulationConfigManager from "../classes/SimulationConfigManager";
+import ServiceOperator from "../../services/ServiceOperator";
+import ImportExportHandler from "../../services/ImportExportHandler";
 import multer from "multer";
 
 const upload = multer({ storage: multer.memoryStorage() });

@@ -1,4 +1,4 @@
-import { requestType } from "../TRequestType";
+import { requestType } from "../../entities/TRequestType";
 import { z } from "zod";
 import {
   endpointIdSchema,

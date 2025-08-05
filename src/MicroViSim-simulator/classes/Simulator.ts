@@ -6,19 +6,19 @@ import {
   TSimulationEndpointDatatype,
   TSimulationNamespace,
   TSimulationResponseBody,
-} from "../../entities/simulator/TSimConfigServiceInfo";
+} from "../entities/TSimConfigServiceInfo";
 
 import DataCache from "../../services/DataCache";
 import { TRealtimeData } from "../../entities/TRealtimeData";
 import { TReplicaCount } from "../../entities/TReplicaCount";
 import { TEndpointDependency } from "../../entities/TEndpointDependency";
 import { TRequestTypeUpper } from "../../entities/TRequestType";
-import EndpointDataType from '../EndpointDataType';
+import EndpointDataType from '../../classes/EndpointDataType';
 import { TCombinedRealtimeData } from "../../entities/TCombinedRealtimeData";
-import { EndpointDependencies } from "../EndpointDependencies";
-import { RealtimeDataList } from "../RealtimeDataList";
+import { EndpointDependencies } from "../../classes/EndpointDependencies";
+import { RealtimeDataList } from "../../classes/RealtimeDataList";
 
-import { CEndpointDependencies } from "../Cacheable/CEndpointDependencies";
+import { CEndpointDependencies } from "../../classes/Cacheable/CEndpointDependencies";
 import Logger from "../../utils/Logger";
 
 type TBaseRealtimeData = Omit<
