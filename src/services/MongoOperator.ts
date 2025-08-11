@@ -1,5 +1,4 @@
 import { connect, Model, Types, FilterQuery, set } from "mongoose";
-import { EndpointDependencies } from "../classes/EndpointDependencies";
 import { TAggregatedData } from "../entities/TAggregatedData";
 import { THistoricalData } from "../entities/THistoricalData";
 import GlobalSettings from "../GlobalSettings";
@@ -7,7 +6,6 @@ import Logger from "../utils/Logger";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
 import { HistoricalDataModel } from "../entities/schema/HistoricalDataSchema";
 import { EndpointDependencyModel } from "../entities/schema/EndpointDependencySchema";
-import { TEndpointDependency } from "../entities/TEndpointDependency";
 import { CombinedRealtimeDataModel } from "../entities/schema/CombinedRealtimeDateSchema";
 import { EndpointDataTypeModel } from "../entities/schema/EndpointDataTypeSchema";
 import { EndpointLabelModel } from "../entities/schema/EndpointLabel";
@@ -127,17 +125,6 @@ export default class MongoOperator {
 
   private applyDateOffset(date: Date, offset: number): Date {
     return new Date(date.getTime() - offset);
-  }
-
-  async saveEndpointDependencies(endpointDependencies: EndpointDependencies) {
-    const results: TEndpointDependency[] = [];
-    for (const dep of endpointDependencies.toJSON()) {
-      const model = new EndpointDependencyModel(dep);
-      if (dep._id) model.isNew = false;
-      const result = (await model.save()).toObject();
-      results.push(result);
-    }
-    return new EndpointDependencies(results);
   }
 
   async delete<T>(ids: Types.ObjectId[], model: Model<T>) {

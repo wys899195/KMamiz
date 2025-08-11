@@ -10,6 +10,7 @@ import { CTaggedSwaggers } from "./CTaggedSwaggers";
 import { CTaggedDiffData } from "./CTaggedDiffData";
 import { CUserDefinedLabel } from "./CUserDefinedLabel";
 import { CTaggedSimulationYAML } from "./CTaggedSimulationYAML";
+import { CSimulatedHistoricalData } from "./CSimulatedHistoricalData";
 
 const classes = {
   [CCombinedRealtimeData.uniqueName]: CCombinedRealtimeData,
@@ -24,6 +25,7 @@ const classes = {
   [CTaggedDiffData.uniqueName]: CTaggedDiffData,
   [CLookBackRealtimeData.uniqueName]: CLookBackRealtimeData,
   [CTaggedSimulationYAML.uniqueName]: CTaggedSimulationYAML,
+  [CSimulatedHistoricalData.uniqueName]: CSimulatedHistoricalData,
 };
 
 const names = [
@@ -39,6 +41,7 @@ const names = [
   CTaggedDiffData.uniqueName,
   CLookBackRealtimeData.uniqueName,
   CTaggedSimulationYAML.uniqueName,
+  CSimulatedHistoricalData.uniqueName,
 ] as const;
 
 export type CacheableNames = typeof names[number];

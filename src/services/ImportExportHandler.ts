@@ -10,6 +10,7 @@ import { CTaggedSwaggers } from "../classes/Cacheable/CTaggedSwaggers";
 import { CTaggedDiffData } from "../classes/Cacheable/CTaggedDiffData";
 import { CUserDefinedLabel } from "../classes/Cacheable/CUserDefinedLabel";
 import { CTaggedSimulationYAML } from "../classes/Cacheable/CTaggedSimulationYAML";
+import { CSimulatedHistoricalData } from "../classes/Cacheable/CSimulatedHistoricalData";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
 import { HistoricalDataModel } from "../entities/schema/HistoricalDataSchema";
 import { TAggregatedData } from "../entities/TAggregatedData";
@@ -22,7 +23,8 @@ import KubernetesService from "./KubernetesService";
 import { tgz } from "compressing";
 import { Readable } from 'stream';
 import Logger from "../utils/Logger";
-
+import { Cacheable } from "../classes/Cacheable/Cacheable";
+import GlobalSettings from "../GlobalSettings";
 
 export default class ImportExportHandler {
   private static instance?: ImportExportHandler;
@@ -45,7 +47,7 @@ export default class ImportExportHandler {
 
   async clearData() {
     DataCache.getInstance().clear();
-    DataCache.getInstance().register([
+    const caches: Cacheable<any>[] = [
       new CLabelMapping(),
       new CEndpointDataType(),
       new CCombinedRealtimeData(),
@@ -57,8 +59,13 @@ export default class ImportExportHandler {
       new CLabeledEndpointDependencies(),
       new CUserDefinedLabel(),
       new CLookBackRealtimeData(),
-      new CTaggedSimulationYAML(),
-    ]);
+    ];
+
+    // Register simulator-related caches only in simulator mode
+    if (GlobalSettings.SimulatorMode) {
+      caches.push(new CTaggedSimulationYAML());
+      caches.push(new CSimulatedHistoricalData());
+    }
     await MongoOperator.getInstance().clearDatabase();
   }
 
@@ -84,16 +91,24 @@ export default class ImportExportHandler {
     const [, historicalData] =
       importData.find(([name]) => name === "HistoricalData") || [];
 
-    await MongoOperator.getInstance().insertMany(
-      [aggregatedData as TAggregatedData],
-      AggregatedDataModel
-    );
+    console.log("aggregatedDataddd",aggregatedData)
+    if (!GlobalSettings.SimulatorMode) {
+      await MongoOperator.getInstance().insertMany(
+        [aggregatedData as TAggregatedData],
+        AggregatedDataModel
+      );
+      await DispatchStorage.getInstance().syncAll();
+    } else {
+      DataCache.getInstance()
+        .get<CSimulatedHistoricalData>("SimulatedHistoricalData")
+        .insertOneData(aggregatedData);
+    }
+    
     await MongoOperator.getInstance().insertMany(
       historicalData as THistoricalData[],
       HistoricalDataModel
     );
 
-    await DispatchStorage.getInstance().syncAll();
     ServiceUtils.getInstance().updateLabel();
     return true;
   }

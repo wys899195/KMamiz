@@ -8,6 +8,7 @@ import { CCombinedRealtimeData } from "../classes/Cacheable/CCombinedRealtimeDat
 import { CEndpointDependencies } from "../classes/Cacheable/CEndpointDependencies";
 import { CReplicas } from "../classes/Cacheable/CReplicas";
 import { CEndpointDataType } from "../classes/Cacheable/CEndpointDataType";
+import { CSimulatedHistoricalData } from "../classes/Cacheable/CSimulatedHistoricalData";
 import { EndpointDependencies } from "../classes/EndpointDependencies";
 import { AggregatedDataModel } from "../entities/schema/AggregatedDataSchema";
 import { HistoricalDataModel } from "../entities/schema/HistoricalDataSchema";
@@ -182,7 +183,7 @@ export default class ServiceOperator {
   }
 
 
-  async createHistoricalAndAggregatedDataSimulate() {
+  async createSimulatedHistoricalAndAggregatedData() {
     const info = this.getDataForAggregate();
     if (!info) return;
 
@@ -190,7 +191,7 @@ export default class ServiceOperator {
     const serviceDependencies = endpointDependencies.toServiceDependencies();
     const replicas = DataCache.getInstance().get<CReplicas>("ReplicaCounts").getData() || [];
 
-    const historicalData = await this.createHistoricalDataSimulate(
+    const historicalData = await this.createSimulatedHistoricalData(
       combinedRealtimeData,
       serviceDependencies,
       replicas
@@ -218,7 +219,7 @@ export default class ServiceOperator {
       .reset();
   }
 
-  private async createHistoricalDataSimulate(
+  private async createSimulatedHistoricalData(
     rlData: CombinedRealtimeDataList,
     serviceDependencies: TServiceDependency[],
     replicas: TReplicaCount[]
@@ -235,10 +236,11 @@ export default class ServiceOperator {
         replicas
       )
     );
-    await MongoOperator.getInstance().insertMany(
-      [result.toJSON()],
-      HistoricalDataModel
-    );
+
+    DataCache.getInstance()
+      .get<CSimulatedHistoricalData>("SimulatedHistoricalData")
+      .insertOneData(result);
+
     return result;
   }
 
@@ -376,7 +378,7 @@ export default class ServiceOperator {
         DataCache.getInstance()
           .get<CCombinedRealtimeData>("CombinedRealtimeData")
           .setData(new CombinedRealtimeDataList(combinedDataList));
-        await this.createHistoricalAndAggregatedDataSimulate();
+        await this.createSimulatedHistoricalAndAggregatedData();
       }
     }
   }

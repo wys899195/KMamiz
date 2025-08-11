@@ -27,13 +27,15 @@ import Scheduler from "./Scheduler";
 import ServiceOperator from "./ServiceOperator";
 import ServiceUtils from "./ServiceUtils";
 import ZipkinService from "./ZipkinService";
+import { CSimulatedHistoricalData } from "../classes/Cacheable/CSimulatedHistoricalData";
+import { Cacheable } from "../classes/Cacheable/Cacheable";
 // import ImportExportHandler from "./ImportExportHandler";
 
 export default class Initializer {
   private static instance?: Initializer;
   static getInstance = () => this.instance || (this.instance = new this());
 
-  private constructor() {}
+  private constructor() { }
 
   async firstTimeSetup() {
     const todayTime = new Date(new Date().toLocaleDateString()).getTime();
@@ -122,7 +124,7 @@ export default class Initializer {
 
   async registerDataCaches() {
     Logger.info("Registering caches.");
-    DataCache.getInstance().register([
+    const caches:Cacheable<any>[] = [
       new CLabelMapping(),
       new CEndpointDataType(),
       new CCombinedRealtimeData(),
@@ -134,9 +136,15 @@ export default class Initializer {
       new CLabeledEndpointDependencies(),
       new CUserDefinedLabel(),
       new CLookBackRealtimeData(),
-      new CTaggedSimulationYAML(),
-    ]);
-  } 
+    ];
+
+    // Register simulator-related caches only in simulator mode
+    if (GlobalSettings.SimulatorMode) {
+      caches.push(new CTaggedSimulationYAML());
+      caches.push(new CSimulatedHistoricalData());
+    }
+    DataCache.getInstance().register(caches);
+  }
 
   async productionServerStartUp() {
     await this.registerDataCaches();
@@ -156,7 +164,7 @@ export default class Initializer {
         "realtime",
         GlobalSettings.RealtimeInterval,
         () => ServiceOperator.getInstance().retrieveRealtimeData(),
-        () => {}
+        () => { }
       );
       Scheduler.getInstance().register(
         "dispatch",
